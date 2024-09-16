@@ -1,0 +1,9 @@
+executable = /is/cluster/fast/pyu/gsEqu/commands_iter.sh
+error =  /is/cluster/fast/pyu/refnerf_results/logs/(ClusterId).(ClusterId).(Process).err
+output = /is/cluster/fast/pyu/refnerf_results/logs/(ClusterId).(ClusterId).(Process).out
+log = /is/cluster/fast/pyu/refnerf_results/logs/(ClusterId).(ClusterId).(Process).log
+request_memory = 256000
+request_cpus = 4
+request_gpus = 1
+request_disk = 100G
+queue 1

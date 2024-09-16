@@ -367,7 +367,7 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
             'rend_dist': render_dist,
             'surf_depth': surf_depth,
             'surf_normal': surf_normal,
-            'ng_w': normalsG_W
+            # 'ng_w': normalsG_W
     })
 
     
@@ -537,17 +537,17 @@ def pbr_render_df(viewpoint_camera,
         surf_normal,
     )
 
-    # just for verify the normals
-    normalsG_W = pc.get_normals
-    numG = means3D.shape[0]
-    cos = dot(normalsG_W, view_dirs[400,400,0:3].repeat(numG, 1)) # (numG, 1)
-    mul = torch.where(cos > 0, 1., -1.) # (numG, 1)
-    normalsG_W = normalsG_W * mul # (numG, 3)
+    # # just for verify the normals
+    # normalsG_W = pc.get_normals
+    # numG = means3D.shape[0]
+    # cos = dot(normalsG_W, view_dirs[400,400,0:3].repeat(numG, 1)) # (numG, 1)
+    # mul = torch.where(cos > 0, 1., -1.) # (numG, 1)
+    # normalsG_W = normalsG_W * mul # (numG, 3)
 
     pre_blend = {
         "metallic": metallic.repeat(1, 3),
         "roughness": roughness.repeat(1, 3),
-        "normals_blended": normalsG_W,
+        # "normals_blended": normalsG_W,
     }
 
     
@@ -567,10 +567,10 @@ def pbr_render_df(viewpoint_camera,
     
     
     
-    close = torch.isclose(deffered_input["normals_blended"], rn, rtol=1e-3, atol=1e-3)
-    num_close = close.all(dim=0).sum().item()
-    print(f"normals close: {num_close}/{close.shape[2]}*{close.shape[1]}")
-    assert torch.allclose(deffered_input["normals_blended"], rn, rtol=1e-2, atol=1e-2), "normals not match"
+    # close = torch.isclose(deffered_input["normals_blended"], rn, rtol=1e-3, atol=1e-3)
+    # num_close = close.all(dim=0).sum().item()
+    # print(f"normals close: {num_close}/{close.shape[2]}*{close.shape[1]}")
+    # assert torch.allclose(deffered_input["normals_blended"], rn, rtol=1e-2, atol=1e-2), "normals not match"
 
   
     results, extras = gsir_deferred_shading(light, 
@@ -626,7 +626,7 @@ def pbr_render_df(viewpoint_camera,
         return rets
 
 
-    rets.update(deffered_input) # albedo, roughness, metallic, normals_blended
+    rets.update(deffered_input) # albedo, roughness, metallic
     rets.update(extras) #diffuse_light, specular_light, diffuse_rgb, specular_rgb
     return rets
     

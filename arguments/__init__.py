@@ -104,7 +104,7 @@ class OptimizationParams(ParamGroup):
         self.fw_iter = 1
         
         self.densify_from_iter = 500
-        self.densify_until_iter = 30_000
+        self.densify_until_iter = 40_000
         self.densify_grad_threshold = 0.0002
         
         # lr for cubelight

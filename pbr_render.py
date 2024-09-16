@@ -29,7 +29,7 @@ from utils.image_utils import apply_depth_colormap, turbo_cmap
 import numpy as np
 
 
-def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline, background, w_metallic, canonical_rays):
+def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline, background, canonical_rays, mode):
 
     brdf_lut = get_brdf_lut().cuda()
 
@@ -40,7 +40,6 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
     envmap_path = os.path.join(model_path, name, "envmap.png")
     torchvision.utils.save_image(envmap, envmap_path)
 
-
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")
     gts_path = os.path.join(model_path, name, "ours_{}".format(iteration), "gt")
     brdf_path = os.path.join(model_path, name, "ours_{}".format(iteration), "brdf")
@@ -50,97 +49,39 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
     normalDepth_path = os.path.join(model_path, name, "ours_{}".format(iteration), "n_Depth")
     depth_path = os.path.join(model_path, name, "ours_{}".format(iteration), "depth")
     light_path = os.path.join(model_path, name, "ours_{}".format(iteration), "light")
-
-
-
-    makedirs(os.path.join(render_path,"fw"), exist_ok=True)
-    makedirs(os.path.join(render_path,"df"), exist_ok=True)
-
-    makedirs(os.path.join(gts_path,"fw"), exist_ok=True)
-    makedirs(os.path.join(gts_path,"df"), exist_ok=True)
-
-    makedirs(os.path.join(brdf_path,"fw"), exist_ok=True)
-    makedirs(os.path.join(brdf_path,"df"), exist_ok=True)
-
-    makedirs(os.path.join(pbr_path,"fw"), exist_ok=True)
-    makedirs(os.path.join(pbr_path,"df"), exist_ok=True)
-
-    makedirs(os.path.join(alpha_path,"fw"), exist_ok=True)
-    makedirs(os.path.join(alpha_path,"df"), exist_ok=True)
-
-    makedirs(os.path.join(normalRender_path,"fw"), exist_ok=True)
-    makedirs(os.path.join(normalRender_path,"df"), exist_ok=True)
-
-    makedirs(os.path.join(normalDepth_path,"fw"), exist_ok=True)
-    makedirs(os.path.join(normalDepth_path,"df"), exist_ok=True)
-
-    makedirs(os.path.join(depth_path,"fw"), exist_ok=True)
-    makedirs(os.path.join(depth_path,"df"), exist_ok=True)
-
-    makedirs(os.path.join(light_path,"fw"), exist_ok=True)
-    makedirs(os.path.join(light_path,"df"), exist_ok=True)
-
     
-    
-    # makedirs(gts_path, exist_ok=True)
-    # makedirs(brdf_path, exist_ok=True)
-    # makedirs(pbr_path, exist_ok=True)
-    # makedirs(alpha_path, exist_ok=True)
-    # makedirs(normalRender_path, exist_ok=True)
-    # makedirs(normalDepth_path, exist_ok=True)
-    # makedirs(depth_path, exist_ok=True)
+    makedirs(render_path, exist_ok=True)
+    makedirs(gts_path, exist_ok=True)
+    makedirs(brdf_path, exist_ok=True)
+    makedirs(pbr_path, exist_ok=True)
+    makedirs(alpha_path, exist_ok=True)
+    makedirs(normalRender_path, exist_ok=True)
+    makedirs(normalDepth_path, exist_ok=True)
+    makedirs(depth_path, exist_ok=True)
+    makedirs(light_path, exist_ok=True)
 
 
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
         torch.cuda.synchronize()
 
-        render_pkg = pbr_render_fw(
-          viewpoint_camera=view,
-          pc=gaussians,
-          light=cubemap,
-          pipe=pipeline,
-          bg_color=background,
-          brdf_lut=brdf_lut,
-          speed=False,
-          w_metallic= w_metallic)
+        if mode == "fw":
 
-        torch.cuda.synchronize()
-
-        alpha, rend_normal, dist, surf_depth, normal_from_d = render_pkg["rend_alpha"], render_pkg["rend_normal"], render_pkg["rend_dist"], render_pkg["surf_depth"], render_pkg["surf_normal"]
-        diffuse_rgb, specular_rgb, albedo, roughness, metallic = render_pkg["diffuse_rgb"], render_pkg["specular_rgb"], render_pkg["albedo"], render_pkg["roughness"], render_pkg["metallic"]
-        diffuse_light, specular_light = render_pkg["diffuse_light"], render_pkg["specular_light"]
-
-        image_fw = render_pkg["render"]
-        torchvision.utils.save_image(image_fw, os.path.join(render_path, "fw" '{0:05d}'.format(idx) + ".png"))
-        gt = view.original_image[0:3, :, :]
-        torchvision.utils.save_image(gt, os.path.join(gts_path,"fw", '{0:05d}'.format(idx) + ".png"))
-
-        brdf_map = torch.cat([albedo, roughness, metallic,], dim=2,)
-        torchvision.utils.save_image(brdf_map, os.path.join(brdf_path,"fw", f"{idx:05d}_brdf.png"))
-        pbr_image = torch.cat([image_fw, diffuse_rgb, specular_rgb], dim=2)  # [3, H, 3W]
-        torchvision.utils.save_image(pbr_image, os.path.join(pbr_path,"fw", f"{idx:05d}_pbr.png"))
-
+            render_pkg = pbr_render_fw(
+            viewpoint_camera=view,
+            pc=gaussians,
+            light=cubemap,
+            pipe=pipeline,
+            bg_color=background,
+            brdf_lut=brdf_lut,
+            speed=False,)
         
+        elif mode == "df":
 
-        torchvision.utils.save_image(alpha, os.path.join(alpha_path, "fw", f"{idx:05d}_pbr.png"))
-        normalR = 0.5 + (0.5*rend_normal)
-        normalD = 0.5 + (0.5*normal_from_d)
-        torchvision.utils.save_image(normalR, os.path.join(normalRender_path, "fw", f"{idx:05d}_pbr.png"))
-        torchvision.utils.save_image(normalD, os.path.join(normalDepth_path, "fw", f"{idx:05d}_pbr.png"))
-
-        depth = apply_depth_colormap(-surf_depth[0][...,None]).permute(2,0,1)        
-        torchvision.utils.save_image(depth, os.path.join(depth_path, "fw", f"{idx:05d}_pbr.png"))
-
-        lights = torch.cat([diffuse_light, specular_light], dim=2)
-        torchvision.utils.save_image(lights, os.path.join(light_path, "fw", f"{idx:05d}_pbr.png"))
-
-
-        # deffered shading
-        H, W = view.image_height, view.image_width
-        c2w = torch.inverse(view.world_view_transform.T)  # [4, 4]
-        view_dirs = -(( F.normalize(canonical_rays[:, None, :], p=2, dim=-1)* c2w[None, :3, :3]).sum(dim=-1) #[HW,3]
-                    .reshape(H, W, 3))
-        render_pkg = pbr_render_df(
+            H, W = view.image_height, view.image_width
+            c2w = torch.inverse(view.world_view_transform.T)  # [4, 4]
+            view_dirs = -(( F.normalize(canonical_rays[:, None, :], p=2, dim=-1)* c2w[None, :3, :3]).sum(dim=-1) #[HW,3]
+                        .reshape(H, W, 3)) # direct from screen to cam center
+            render_pkg = pbr_render_df(
                     viewpoint_camera=view,
                     pc=gaussians,
                     light=cubemap,
@@ -149,53 +90,69 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
                     view_dirs = view_dirs,
                     brdf_lut= brdf_lut,
                     speed=False,
-                    w_metallic= w_metallic
                     )
+        elif mode == "iterative":
+            render_pkg_fw = pbr_render_fw(
+                viewpoint_camera=view,
+                pc=gaussians,
+                light=cubemap,
+                pipe=pipeline,
+                bg_color=background,
+                brdf_lut=brdf_lut,
+                speed=False,
+                )
+
+            H, W = view.image_height, view.image_width
+            c2w = torch.inverse(view.world_view_transform.T)  # [4, 4]
+            view_dirs = -(( F.normalize(canonical_rays[:, None, :], p=2, dim=-1)* c2w[None, :3, :3]).sum(dim=-1) #[HW,3]
+                        .reshape(H, W, 3)) # direct from screen to cam center
+            render_pkg_df = pbr_render_df(
+                viewpoint_camera=view,
+                pc=gaussians,
+                light=cubemap,
+                pipe=pipeline,
+                bg_color=background,
+                view_dirs = view_dirs,
+                brdf_lut= brdf_lut,
+                speed=False,
+                )
+            render_pkg = {}
+            for keys in render_pkg_df.keys():
+                render_pkg[keys] = (render_pkg_fw[keys] + render_pkg_df[keys])/2.
+        
+        torch.cuda.synchronize()
+
         alpha, rend_normal, dist, surf_depth, normal_from_d = render_pkg["rend_alpha"], render_pkg["rend_normal"], render_pkg["rend_dist"], render_pkg["surf_depth"], render_pkg["surf_normal"]
         diffuse_rgb, specular_rgb, albedo, roughness, metallic = render_pkg["diffuse_rgb"], render_pkg["specular_rgb"], render_pkg["albedo"], render_pkg["roughness"], render_pkg["metallic"]
         diffuse_light, specular_light = render_pkg["diffuse_light"], render_pkg["specular_light"]
-        img_df = render_pkg["render"]
 
-        try:
-            gt_mask = view.gt_normal_mask.cuda()
-            print("using gt mask for deffered rendering")
-        except:
-            gt_mask = None
-
-        if gt_mask is not None:
-            image = torch.where(gt_mask, img_df, background[:,None,None])
-            rend_normal = torch.where(gt_mask, rend_normal, torch.zeros_like(rend_normal))
-            normal_from_d = torch.where(gt_mask, normal_from_d, torch.zeros_like(normal_from_d))
-        else:
-            mask = (render_pkg["rend_normal"] != 0).all(0, keepdim=True) # 其实这里有疑问，为什么用all? 
-            image = torch.where(mask, img_df, background[:,None,None])
-            rend_normal = torch.where(mask, rend_normal, torch.zeros_like(rend_normal))
-            normal_from_d = torch.where(mask, normal_from_d, torch.zeros_like(normal_from_d))
-        
-        brdf_map = torch.cat([albedo, roughness, metallic,], dim=2,)
-        torchvision.utils.save_image(brdf_map, os.path.join(brdf_path,"df", f"{idx:05d}_brdf.png"))
-        pbr_image = torch.cat([image, diffuse_rgb, specular_rgb], dim=2)  # [3, H, 3W]
-        torchvision.utils.save_image(pbr_image, os.path.join(pbr_path,"df", f"{idx:05d}_pbr.png"))
-
-        torchvision.utils.save_image(image, os.path.join(render_path, "df", '{0:05d}'.format(idx) + ".png"))
+        image = render_pkg["render"]
+        torchvision.utils.save_image(image, os.path.join(render_path,'{0:05d}'.format(idx) + ".png"))
         gt = view.original_image[0:3, :, :]
-        torchvision.utils.save_image(gt, os.path.join(gts_path,"df", '{0:05d}'.format(idx) + ".png"))
+        torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
 
-        torchvision.utils.save_image(alpha, os.path.join(alpha_path, "df", f"{idx:05d}_pbr.png"))
+        brdf_map = torch.cat([albedo, roughness, metallic,], dim=2,)
+        torchvision.utils.save_image(brdf_map, os.path.join(brdf_path, f"{idx:05d}.png"))
+        pbr_image = torch.cat([image, diffuse_rgb, specular_rgb], dim=2)  # [3, H, 3W]
+        torchvision.utils.save_image(pbr_image, os.path.join(pbr_path, f"{idx:05d}.png"))
+
+        
+        torchvision.utils.save_image(alpha, os.path.join(alpha_path, f"{idx:05d}.png"))
+        
+        # world view normals
         normalR = 0.5 + (0.5*rend_normal)
         normalD = 0.5 + (0.5*normal_from_d)
-        torchvision.utils.save_image(normalR, os.path.join(normalRender_path, "df", f"{idx:05d}_pbr.png"))
-        torchvision.utils.save_image(normalD, os.path.join(normalDepth_path, "df", f"{idx:05d}_pbr.png"))
+        torchvision.utils.save_image(normalR, os.path.join(normalRender_path, f"{idx:05d}.png"))
+        torchvision.utils.save_image(normalD, os.path.join(normalDepth_path, f"{idx:05d}.png"))
 
         depth = apply_depth_colormap(-surf_depth[0][...,None]).permute(2,0,1)        
-        torchvision.utils.save_image(depth, os.path.join(depth_path, "df", f"{idx:05d}_pbr.png"))
+        torchvision.utils.save_image(depth, os.path.join(depth_path, f"{idx:05d}.png"))
 
         lights = torch.cat([diffuse_light, specular_light], dim=2)
-        torchvision.utils.save_image(lights, os.path.join(light_path, "df", f"{idx:05d}_pbr.png"))
+        torchvision.utils.save_image(lights, os.path.join(light_path, f"{idx:05d}.png"))
 
 
-
-def render_sets(dataset : ModelParams, chkp_path: str, pipeline : PipelineParams, skip_train : bool, skip_test : bool):
+def render_sets(dataset : ModelParams, chkp_path: str, pipeline : PipelineParams, skip_train : bool, skip_test : bool, mode : str):
     with torch.no_grad():
     
 
@@ -211,17 +168,21 @@ def render_sets(dataset : ModelParams, chkp_path: str, pipeline : PipelineParams
 
         print("Restored from checkpoint at iteration", first_iter)
 
-        # bg_color = [1,1,1] if dataset.white_background else [0, 0, 0]
-        bg_color = [1,0,0]
+        bg_color = [1,1,1] if dataset.white_background else [0, 0, 0]
+        # bg_color = [1,0,0]
         background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
         canonical_rays = scene.get_canonical_rays()
 
 
         if not skip_train:
-             render_set(dataset.model_path, "train", first_iter, scene.getTrainCameras(), gaussians, cubemap,  pipeline, background, dataset.metallic, canonical_rays)
+             render_set(dataset.model_path, "train", first_iter, scene.getTrainCameras(), 
+                        gaussians, cubemap,  pipeline, background, canonical_rays, 
+                        mode)
 
         if not skip_test:
-             render_set(dataset.model_path, "test", first_iter, scene.getTestCameras(), gaussians, cubemap, pipeline, background, dataset.metallic, canonical_rays)
+             render_set(dataset.model_path, "test", first_iter, scene.getTestCameras(), 
+                        gaussians, cubemap, pipeline, background, canonical_rays, 
+                        mode)
 
 
              
@@ -236,10 +197,15 @@ if __name__ == "__main__":
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint", type=str, default=None, help="The path to the checkpoint to load.")
 
+    parser.add_argument("--mode", type=str, default="iterative")
+
     args = get_combined_args(parser)
     print("Rendering " + args.model_path)
 
     # Initialize system state (RNG)
     safe_state(args.quiet)
 
-    render_sets(model.extract(args),args.checkpoint, pipeline.extract(args), args.skip_train, args.skip_test)
+    render_sets(model.extract(args),args.checkpoint, pipeline.extract(args), args.skip_train, args.skip_test, args.mode)
+
+
+# python pbr_render.py -s /is/cluster/fast/pyu/data/refnerf/helmet -m /is/cluster/fast/pyu/results/helmet/iter_20_1 -w --eval --checkpoint /is/cluster/fast/pyu/results/helmet/iter_20_1/chkpnt45000.pth --mode iterative

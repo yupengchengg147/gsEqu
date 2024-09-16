@@ -81,7 +81,6 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
     
 
     for iteration in range(first_iter, opt.iterations + 1):
-        print("\n[ITER {}]".format(iteration))        
 
         iter_start.record()
 
@@ -269,16 +268,18 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
             
             if iteration < (opt.warmup_iterations+1):
                 training_report(tb_writer, grad_dict, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background))
-            elif iteration % (opt.fw_iter + opt.df_iter) < opt.fw_iter:
+            elif render_mode == "fw" or (render_mode == "iterative" and iteration % (opt.fw_iter + opt.df_iter) < opt.fw_iter):
                 training_report(tb_writer, grad_dict, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), 
                                 testing_iterations, scene, pbr_render_fw, 
                                 (cubemap, pipe, background, brdf_lut, False)
                                 )
-            else:
+            elif render_mode == "df" or (render_mode == "iterative" and iteration % (opt.fw_iter + opt.df_iter) >= opt.fw_iter):
                 training_report(tb_writer, grad_dict, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), 
                                 testing_iterations, scene, pbr_render_df, 
                                 (cubemap, pipe, background, view_dirs, brdf_lut, False)
                                 )
+            else:
+                raise ValueError("Unknown render mode")
             
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
@@ -351,4 +352,5 @@ if __name__ == "__main__":
 
 
 
-# python pbr_train.py -s /is/cluster/fast/pyu/data/refnerf/helmet -m /is/cluster/fast/pyu/results/helmet/iter_20_1 -w --eval --warmup_iterations 1 --lambda_dist 100 --lambda_normal 0.01 --fw_iter 1 --df_iter 1 --mode iterative
+# python pbr_train.py -s /is/cluster/fast/pyu/data/refnerf/helmet -m /is/cluster/fast/pyu/results/helmet/iter_20_1 
+# -w --eval --warmup_iterations 1 --lambda_dist 100 --lambda_normal 0.01 --fw_iter 1 --df_iter 1 --mode iterative

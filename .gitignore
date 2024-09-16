@@ -14,3 +14,4 @@ eval
 **/tmp
 */build/*
 all_test/
+*.html

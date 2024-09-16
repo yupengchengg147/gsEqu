@@ -132,6 +132,8 @@ class GaussianModel:
 
         # return safe_normalize(normal_w)
         normal_b = self.covariance_activation(self.get_xyz, self.get_scaling, 1, self._rotation)[:,2,:3] #(N,3) the third row
+        norm_b = torch.norm(normal_b, dim=1, keepdim=True)
+        assert torch.allclose(norm_b, torch.ones_like(norm_b), atol=1e-2, rtol=1e-2), "Normal is not normalized"
         return normal_b
     
     @property
