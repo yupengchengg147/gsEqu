@@ -1,5 +1,11 @@
-conda activate /home/pyu/miniforge3/envs/2dgs
 module load cuda/11.8
+export PATH="/usr/bin:${PATH}"
+source /home/pyu/miniforge3/etc/profile.d/conda.sh
+conda activate 2dgs
+cd /is/cluster/fast/pyu/gsEqu
+conda env list
+echo $CONDA_DEFAULT_ENV
+
 export PATH=$PATH
 export CRYPTOGRAPHY_OPENSSL_NO_LEGACY=1
 export LD_LIBRARY_PATH=/is/software/nvidia/cuda-11.8/lib64:$LD_LIBRARY_PATH
@@ -9,6 +15,8 @@ export C_INCLUDE_PATH=/is/software/nvidia/cudnn-8.7.0-cu11.x/include
 export CPLUS_INCLUDE_PATH=$C_INCLUDE_PATH
 export LD_LIBRARY_PATH=/is/software/nvidia/cudnn-8.7.0-cu11.x/lib64:$LD_LIBRARY_PATH
 
+# python pbr_train.py -s /is/cluster/fast/pyu/data/refnerf/helmet -m /is/cluster/fast/pyu/refnerf_results/helmet/iter_1_1 \ 
+# -w --eval --warmup_iterations 1 --lambda_dist 100 --lambda_normal 0.01 --fw_iter 1 --df_iter 1 --mode iterati
 
 models=("ball" "car" "coffee" "helmet" "teapot" "toaster")
 fw_iter_intervals=(1 1 1 1 5 25 100)
@@ -32,6 +40,8 @@ for model in "${models[@]}"; do
             --fw_iter "${fw_iter_interval}" \
             --df_iter "${df_iter_interval}" \
             --mode "iterative"
+            --gamma
+            --tone
 
         checkpoint="${output_dir}/chkpnt45000.pth"
 
@@ -42,6 +52,8 @@ for model in "${models[@]}"; do
             --eval \
             --checkpoint "${checkpoint}" \
             --mode "iterative"
+            --gamma
+            --tone
     done
 
 done
@@ -59,6 +71,8 @@ for model in "${models[@]}"; do
         --lambda_dist 100 \
         --lambda_normal 0.01 \
         --mode "fw"
+        --gamma
+        --tone
 
     checkpoint="${output_dir}/chkpnt45000.pth"
 
@@ -69,6 +83,8 @@ for model in "${models[@]}"; do
         --eval \
         --checkpoint "${checkpoint}" \
         --mode "fw"
+        --gamma
+        --tone
 done
 
 #df
@@ -84,6 +100,8 @@ for model in "${models[@]}"; do
         --lambda_dist 100 \
         --lambda_normal 0.01 \
         --mode "df"
+        --gamma
+        --tone
 
     checkpoint="${output_dir}/chkpnt45000.pth"
 
@@ -94,5 +112,9 @@ for model in "${models[@]}"; do
         --eval \
         --checkpoint "${checkpoint}" \
         --mode "df"
+        --gamma
+        --tone
 done
+
+exit
 
