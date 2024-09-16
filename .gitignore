@@ -5,13 +5,12 @@ build
 data
 *.ply
 **/PKG-INFO
-submodules
+# submodules
 **__pycache__**
 *.png
 *.out
 eval
 *.npz
 **/tmp
-submodules/simple-knn/build
+*/build/*
 all_test/
-*.md
