@@ -186,6 +186,46 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
                         speed=True,
                         )
 
+            elif render_mode == "stochastic" and opt.fw_rate > 0 and opt.fw_rate < 1.:
+                render_pkg_fw = pbr_render_fw(
+                            viewpoint_camera=viewpoint_cam,
+                            pc=gaussians,
+                            light=cubemap,
+                            pipe=pipe,
+                            bg_color=background,
+                            brdf_lut=brdf_lut,
+                            speed=True,
+                            )
+                H, W = viewpoint_cam.image_height, viewpoint_cam.image_width
+                c2w = torch.inverse(viewpoint_cam.world_view_transform.T)  # [4, 4]
+                view_dirs = -(( F.normalize(canonical_rays[:, None, :], p=2, dim=-1)* c2w[None, :3, :3]).sum(dim=-1) #[HW,3]
+                            .reshape(H, W, 3)) # direct from screen to cam center
+
+                render_pkg_df = pbr_render_df(
+                    viewpoint_camera=viewpoint_cam,
+                    pc=gaussians,
+                    light=cubemap,
+                    pipe=pipe,
+                    bg_color=background,
+                    view_dirs = view_dirs,
+                    brdf_lut= brdf_lut,
+                    speed=True,
+                    )
+                
+                fw_mask = torch.rand(H, W, device="cuda") < opt.fw_rate # [H,W]
+                render_pkg = {
+                    "render": fw_mask[None,:, :] * render_pkg_fw["render"] + (~fw_mask[None,:, :]) * render_pkg_df["render"],
+                    "viewspace_points": fw_mask[None,:, :] * render_pkg_fw["viewspace_points"] + (~fw_mask[None,:, :]) * render_pkg_df["viewspace_points"],
+                    "visibility_filter": render_pkg_fw["visibility_filter"],
+                    "radii": render_pkg_fw["radii"],
+                    "rend_alpha": fw_mask.flatten() * render_pkg_fw["rend_alpha"] + (~fw_mask.flatten()) * render_pkg_df["rend_alpha"],
+                    "rend_normal": fw_mask[None,:, :] * render_pkg_fw["rend_normal"] + (~fw_mask[None,:, :]) * render_pkg_df["rend_normal"],
+                    "rend_dist": fw_mask.flatten() * render_pkg_fw["rend_dist"] + (~fw_mask.flatten()) * render_pkg_df["rend_dist"],
+                    "surf_depth": fw_mask.flatten() * render_pkg_fw["surf_depth"] + (~fw_mask.flatten()) * render_pkg_df["surf_depth"],
+                    "surf_normal": fw_mask[None,:, :] * render_pkg_fw["surf_normal"] + (~fw_mask[None,:, :]) * render_pkg_df["surf_normal"]
+                }
+
+                
             else:
                 raise ValueError("Unknown render mode")
 
@@ -352,5 +392,4 @@ if __name__ == "__main__":
 
 
 
-# python pbr_train.py -s /is/cluster/fast/pyu/data/refnerf/helmet -m /is/cluster/fast/pyu/results/helmet/iter_20_1 
-# -w --eval --warmup_iterations 1 --lambda_dist 100 --lambda_normal 0.01 --fw_iter 1 --df_iter 1 --mode iterative
+# python pbr_train.py -s /is/cluster/fast/pyu/data/refnerf/helmet -m /is/cluster/fast/pyu/results/helmet/iter_20_1 -w --eval --warmup_iterations 1 --lambda_dist 100 --lambda_normal 0.01 --fw_iter 1 --df_iter 1 --mode iterative --gamma --tone

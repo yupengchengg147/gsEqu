@@ -1,11 +1,12 @@
+#!/bin/bash
 module load cuda/11.8
-export PATH="/usr/bin:${PATH}"
-source /home/pyu/miniforge3/etc/profile.d/conda.sh
-conda activate 2dgs
-cd /is/cluster/fast/pyu/gsEqu
-conda env list
-echo $CONDA_DEFAULT_ENV
-
+# export PATH="/usr/bin:${PATH}"
+# source /home/pyu/miniforge3/etc/profile.d/conda.sh
+# conda activate 2dgs
+# cd /is/cluster/fast/pyu/gsEqu
+# conda env list
+# echo $CONDA_DEFAULT_ENV
+export TORCH_EXTENSIONS_DIR="/tmp/.cache"
 export PATH=$PATH
 export CRYPTOGRAPHY_OPENSSL_NO_LEGACY=1
 export LD_LIBRARY_PATH=/is/software/nvidia/cuda-11.8/lib64:$LD_LIBRARY_PATH
@@ -15,8 +16,8 @@ export C_INCLUDE_PATH=/is/software/nvidia/cudnn-8.7.0-cu11.x/include
 export CPLUS_INCLUDE_PATH=$C_INCLUDE_PATH
 export LD_LIBRARY_PATH=/is/software/nvidia/cudnn-8.7.0-cu11.x/lib64:$LD_LIBRARY_PATH
 
-# python pbr_train.py -s /is/cluster/fast/pyu/data/refnerf/helmet -m /is/cluster/fast/pyu/refnerf_results/helmet/iter_1_1 \ 
-# -w --eval --warmup_iterations 1 --lambda_dist 100 --lambda_normal 0.01 --fw_iter 1 --df_iter 1 --mode iterati
+
+/is/cluster/pyu/miniforge3/envs/2dgs/bin/python pbr_train.py -s /is/cluster/fast/pyu/data/refnerf/helmet -m /is/cluster/fast/pyu/refnerf_results/helmet/iter_1_1 -w --eval --warmup_iterations 1 --lambda_dist 100 --lambda_normal 0.01 --fw_iter 1 --df_iter 1 --mode iterative --gamma --tone
 
 models=("ball" "car" "coffee" "helmet" "teapot" "toaster")
 fw_iter_intervals=(1 1 1 1 5 25 100)
@@ -29,7 +30,7 @@ for model in "${models[@]}"; do
 
         output_dir="/is/cluster/fast/pyu/refnerf_results/${model}/iter_${fw_iter_interval}_${df_iter_interval}"
 
-        python pbr_train.py \
+        /is/cluster/pyu/miniforge3/envs/2dgs/bin/python pbr_train.py \
             -s "/is/cluster/fast/pyu/data/refnerf/${model}/" \
             -m "${output_dir}" \
             -w \
@@ -39,20 +40,20 @@ for model in "${models[@]}"; do
             --lambda_normal 0.01 \
             --fw_iter "${fw_iter_interval}" \
             --df_iter "${df_iter_interval}" \
-            --mode "iterative"
-            --gamma
+            --mode "iterative" \
+            --gamma \
             --tone
 
         checkpoint="${output_dir}/chkpnt45000.pth"
 
-        python pbr_render.py \
+        /is/cluster/pyu/miniforge3/envs/2dgs/bin/python pbr_render.py \
             -s "/is/cluster/fast/pyu/data/refnerf/${model}/" \
             -m "${output_dir}" \
             -w \
             --eval \
             --checkpoint "${checkpoint}" \
-            --mode "iterative"
-            --gamma
+            --mode "iterative" \
+            --gamma \
             --tone
     done
 
@@ -62,7 +63,7 @@ done
 for model in "${models[@]}"; do
     output_dir="/is/cluster/fast/pyu/refnerf_results/${model}/fw"
 
-    python pbr_train.py \
+    /is/cluster/pyu/miniforge3/envs/2dgs/bin/python pbr_train.py \
         -s "/is/cluster/fast/pyu/data/refnerf/${model}/" \
         -m "${output_dir}" \
         -w \
@@ -70,20 +71,20 @@ for model in "${models[@]}"; do
         --warmup_iterations 1 \
         --lambda_dist 100 \
         --lambda_normal 0.01 \
-        --mode "fw"
-        --gamma
+        --mode "fw" \
+        --gamma \
         --tone
 
     checkpoint="${output_dir}/chkpnt45000.pth"
 
-    python pbr_render.py \
+    /is/cluster/pyu/miniforge3/envs/2dgs/bin/python pbr_render.py \
         -s "/is/cluster/fast/pyu/data/refnerf/${model}/" \
         -m "${output_dir}" \
         -w \
         --eval \
         --checkpoint "${checkpoint}" \
-        --mode "fw"
-        --gamma
+        --mode "fw" \
+        --gamma \
         --tone
 done
 
@@ -91,7 +92,7 @@ done
 for model in "${models[@]}"; do
     output_dir="/is/cluster/fast/pyu/refnerf_results/${model}/df"
 
-    python pbr_train.py \
+    /is/cluster/pyu/miniforge3/envs/2dgs/bin/python pbr_train.py \
         -s "/is/cluster/fast/pyu/data/refnerf/${model}/" \
         -m "${output_dir}" \
         -w \
@@ -99,22 +100,24 @@ for model in "${models[@]}"; do
         --warmup_iterations 1 \
         --lambda_dist 100 \
         --lambda_normal 0.01 \
-        --mode "df"
-        --gamma
+        --mode "df" \
+        --gamma \
         --tone
 
     checkpoint="${output_dir}/chkpnt45000.pth"
 
-    python pbr_render.py \
+    /is/cluster/pyu/miniforge3/envs/2dgs/bin/python pbr_render.py \
         -s "/is/cluster/fast/pyu/data/refnerf/${model}/" \
         -m "${output_dir}" \
         -w \
         --eval \
         --checkpoint "${checkpoint}" \
-        --mode "df"
-        --gamma
+        --mode "df" \
+        --gamma \
         --tone
 done
 
-exit
+# exit
 
+# Loading extension module renderutils_plugin...
+# Lock file exists in build directory: '/lustre/home/pyu/.cache/torch_extensions/py39_cu118/nvdiffrast_plugin/lock'
