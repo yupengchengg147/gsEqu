@@ -1,6 +1,10 @@
 #!/bin/bash
 module load cuda/11.8
 
+export PATH="/usr/bin:${PATH}"
+source /home/pyu/miniforge3/etc/profile.d/conda.sh
+conda activate 2dgs
+
 export TORCH_EXTENSIONS_DIR="/tmp/.cache"
 
 # export PATH=$PATH
@@ -14,7 +18,7 @@ export TORCH_EXTENSIONS_DIR="/tmp/.cache"
 
 cd /is/cluster/fast/pyu/gsEqu
 
-/is/cluster/pyu/miniforge3/envs/2dgs/bin/python pbr_train.py -s /is/cluster/fast/pyu/data/refnerf/helmet -m /is/cluster/fast/pyu/refnerf_results/test -w --eval --warmup_iterations 1 --lambda_dist 100 --lambda_normal 0.01 --fw_iter 1 --df_iter 1 --mode iterative --gamma --tone
+python pbr_train.py -s /is/cluster/fast/pyu/data/refnerf/helmet -m /is/cluster/fast/pyu/refnerf_results/test -w --eval --warmup_iterations 1 --lambda_dist 100 --lambda_normal 0.01 --fw_iter 1 --df_iter 1 --mode iterative --gamma --tone
 
 models=("ball" "car" "coffee" "helmet" "teapot" "toaster")
 fw_iter_intervals=(1 1 1 1 5 25 100)
@@ -27,7 +31,7 @@ for model in "${models[@]}"; do
 
         output_dir="/is/cluster/fast/pyu/refnerf_results/${model}/iter_${fw_iter_interval}_${df_iter_interval}"
 
-        /is/cluster/pyu/miniforge3/envs/2dgs/bin/python pbr_train.py \
+        python pbr_train.py \
             -s "/is/cluster/fast/pyu/data/refnerf/${model}/" \
             -m "${output_dir}" \
             -w \
@@ -43,7 +47,7 @@ for model in "${models[@]}"; do
 
         checkpoint="${output_dir}/chkpnt45000.pth"
 
-        /is/cluster/pyu/miniforge3/envs/2dgs/bin/python pbr_render.py \
+        python pbr_render.py \
             -s "/is/cluster/fast/pyu/data/refnerf/${model}/" \
             -m "${output_dir}" \
             -w \
@@ -60,7 +64,7 @@ done
 for model in "${models[@]}"; do
     output_dir="/is/cluster/fast/pyu/refnerf_results/${model}/fw"
 
-    /is/cluster/pyu/miniforge3/envs/2dgs/bin/python pbr_train.py \
+    python pbr_train.py \
         -s "/is/cluster/fast/pyu/data/refnerf/${model}/" \
         -m "${output_dir}" \
         -w \
@@ -74,7 +78,7 @@ for model in "${models[@]}"; do
 
     checkpoint="${output_dir}/chkpnt45000.pth"
 
-    /is/cluster/pyu/miniforge3/envs/2dgs/bin/python pbr_render.py \
+    python pbr_render.py \
         -s "/is/cluster/fast/pyu/data/refnerf/${model}/" \
         -m "${output_dir}" \
         -w \
@@ -89,7 +93,7 @@ done
 for model in "${models[@]}"; do
     output_dir="/is/cluster/fast/pyu/refnerf_results/${model}/df"
 
-    /is/cluster/pyu/miniforge3/envs/2dgs/bin/python pbr_train.py \
+    python pbr_train.py \
         -s "/is/cluster/fast/pyu/data/refnerf/${model}/" \
         -m "${output_dir}" \
         -w \
@@ -103,7 +107,7 @@ for model in "${models[@]}"; do
 
     checkpoint="${output_dir}/chkpnt45000.pth"
 
-    /is/cluster/pyu/miniforge3/envs/2dgs/bin/python pbr_render.py \
+    python pbr_render.py \
         -s "/is/cluster/fast/pyu/data/refnerf/${model}/" \
         -m "${output_dir}" \
         -w \

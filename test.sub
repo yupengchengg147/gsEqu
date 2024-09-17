@@ -1,9 +1,10 @@
-executable = /is/cluster/fast/pyu/gsEqu/commands_iter_refnerf.sh
+executable = /is/cluster/fast/pyu/gsEqu/test.sh
 error =  /is/cluster/fast/pyu/refnerf_results/logs/$(ClusterId).$(ClusterId).$(Process).err
 output = /is/cluster/fast/pyu/refnerf_results/logs/$(ClusterId).$(ClusterId).$(Process).out
 log = /is/cluster/fast/pyu/refnerf_results/logs/$(ClusterId).$(ClusterId).$(Process).log
-request_memory = 999000
+request_memory = 256000
 request_cpus = 16
 request_gpus = 1
-request_disk = 100G
+request_disk = 200G
+requirements=TARGET.CUDADeviceName=="NVIDIA A100-SXM4-80GB"
 queue 1
