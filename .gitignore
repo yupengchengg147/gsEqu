@@ -15,3 +15,5 @@ eval
 */build/*
 all_test/
 *.html
+*.sh
+*.sub

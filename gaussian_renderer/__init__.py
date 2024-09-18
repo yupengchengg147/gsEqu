@@ -312,6 +312,23 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
         cov3D_precomp = cov3D_precomp
     )
 
+    try:
+        gt_mask = viewpoint_camera.gt_normal_mask.cuda()
+        # print("process deferred shading with gt mask")
+    except:
+        gt_mask = None
+    if gt_mask is not None:
+        rendered_image = torch.where(gt_mask, rendered_image, bg_color[:,None,None])
+        render_normal = torch.where(gt_mask, render_normal, torch.zeros_like(render_normal))
+        surf_normal = torch.where(gt_mask, surf_normal, torch.zeros_like(surf_normal))
+        render_dist = torch.where(gt_mask, render_dist, torch.zeros_like(render_dist))
+    else:
+        mask = (render_normal != 0).all(0, keepdim=True)
+        rendered_image = torch.where(mask, rendered_image, bg_color[:,None,None])
+        render_normal = torch.where(mask, render_normal, torch.zeros_like(render_normal))
+        surf_normal = torch.where(mask, surf_normal, torch.zeros_like(surf_normal))
+        render_dist = torch.where(mask, render_dist, torch.zeros_like(render_dist))
+
     if pipe.tone:
         rendered_image = aces_film(rendered_image)
     else:
