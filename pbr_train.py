@@ -222,10 +222,10 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
                 for key in ["render", "albedo", "roughness", "metallic", 
                             "diffuse_rgb", "specular_rgb", 
                             "diffuse_light", "specular_light"]:
-                    if render_pkg_fw[key] is not None:
-                        render_pkg[key] = fw_mask[None,:, :] * render_pkg_fw[key] + (~fw_mask[None,:, :]) * render_pkg_df[key]
+                    if key in render_pkg_fw.keys() and key in render_pkg_df.keys():
+                        if render_pkg_fw[key] is not None and render_pkg_df[key] is not None:
+                            render_pkg[key] = fw_mask[None,:, :] * render_pkg_fw[key] + (~fw_mask[None,:, :]) * render_pkg_df[key]
 
-                
             else:
                 raise ValueError("Unknown render mode")
 
@@ -322,6 +322,7 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
                 training_report(tb_writer, grad_dict, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), 
                                 testing_iterations, scene, pbr_render_st, 
                                 (cubemap, pipe, background, view_dirs, brdf_lut, False, pipe.fw_rate)
+                                )
             else:
                 raise ValueError("Unknown render mode")
             
@@ -369,7 +370,9 @@ if __name__ == "__main__":
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
     parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 15000, 30_000, 45000])
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 15000, 30_000, 45000])
-    parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[15000, 30_000, 45000])
+    # parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[15000, 30_000, 45000])
+    parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[1000])
+
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--start_checkpoint", type=str, default = None)
 
@@ -397,3 +400,5 @@ if __name__ == "__main__":
 
 
 # python pbr_train.py -s /is/cluster/fast/pyu/data/refnerf/helmet -m /is/cluster/fast/pyu/results/helmet/iter_20_1 -w --eval --warmup_iterations 1 --lambda_dist 100 --lambda_normal 0.01 --fw_iter 1 --df_iter 1 --mode iterative --gamma --tone
+
+# python pbr_train.py -s /is/cluster/fast/pyu/data/refnerf/helmet -m /is/cluster/fast/pyu/results/test -w --eval --warmup_iterations 1 --lambda_dist 100 --lambda_normal 0.01 --fw_iter 1 --df_iter 1 --mode stochastic --fw_rate 0.2 --gamma --tone

@@ -151,13 +151,14 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
                 )
             
             fw_mask = torch.rand(H, W, device="cuda") < pipeline.fw_rate # [H,W]
-            
+                
             render_pkg = render_pkg_fw
             for key in ["render", "albedo", "roughness", "metallic", 
                         "diffuse_rgb", "specular_rgb", 
                         "diffuse_light", "specular_light"]:
-                if render_pkg_fw[key] is not None:
-                    render_pkg[key] = fw_mask[None,:, :] * render_pkg_fw[key] + (~fw_mask[None,:, :]) * render_pkg_df[key]
+                if key in render_pkg_fw.keys() and key in render_pkg_df.keys():
+                    if render_pkg_fw[key] is not None and render_pkg_df[key] is not None:
+                        render_pkg[key] = fw_mask[None,:, :] * render_pkg_fw[key] + (~fw_mask[None,:, :]) * render_pkg_df[key]
 
         else:
             raise ValueError("Unknown render mode")
@@ -173,12 +174,15 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
         gt = view.original_image[0:3, :, :]
         torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
 
+        roughness = apply_depth_colormap(roughness[0][...,None], cmap="gray").permute(2,0,1)
+        metallic = apply_depth_colormap(metallic[0][...,None], cmap="gray").permute(2,0,1)
+        alpha = apply_depth_colormap(alpha[0][...,None], cmap="gray").permute(2,0,1)
+
         brdf_map = torch.cat([albedo, roughness, metallic,], dim=2,)
         torchvision.utils.save_image(brdf_map, os.path.join(brdf_path, f"{idx:05d}.png"))
         pbr_image = torch.cat([image, diffuse_rgb, specular_rgb], dim=2)  # [3, H, 3W]
         torchvision.utils.save_image(pbr_image, os.path.join(pbr_path, f"{idx:05d}.png"))
 
-        
         torchvision.utils.save_image(alpha, os.path.join(alpha_path, f"{idx:05d}.png"))
         
         # world view normals
@@ -187,7 +191,7 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
         torchvision.utils.save_image(normalR, os.path.join(normalRender_path, f"{idx:05d}.png"))
         torchvision.utils.save_image(normalD, os.path.join(normalDepth_path, f"{idx:05d}.png"))
 
-        depth = apply_depth_colormap(-surf_depth[0][...,None]).permute(2,0,1)        
+        depth = apply_depth_colormap(-surf_depth[0][...,None], cmap="turbo").permute(2,0,1)        
         torchvision.utils.save_image(depth, os.path.join(depth_path, f"{idx:05d}.png"))
 
         lights = torch.cat([diffuse_light, specular_light], dim=2)
@@ -197,9 +201,14 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
             torchvision.utils.save_image(render_pkg_fw["render"], os.path.join(render_path,'{0:05d}'.format(idx) + "_fw.png"))
             torchvision.utils.save_image(render_pkg_df["render"], os.path.join(render_path,'{0:05d}'.format(idx) + "_df.png"))
 
-            brdf_map_fw = torch.cat([render_pkg_fw["albedo"], render_pkg_fw["roughness"], render_pkg_fw["metallic"],], dim=2,)
+            roughness_fw = apply_depth_colormap(render_pkg_fw["roughness"][0][...,None], cmap="gray").permute(2,0,1)
+            roughness_df = apply_depth_colormap(render_pkg_df["roughness"][0][...,None], cmap="gray").permute(2,0,1)
+            metallic_fw = apply_depth_colormap(render_pkg_fw["metallic"][0][...,None], cmap="gray").permute(2,0,1)
+            metallic_df = apply_depth_colormap(render_pkg_df["metallic"][0][...,None], cmap="gray").permute(2,0,1)
+
+            brdf_map_fw = torch.cat([render_pkg_fw["albedo"], roughness_fw, metallic_fw,], dim=2,)
             torchvision.utils.save_image(brdf_map_fw, os.path.join(brdf_path, f"{idx:05d}_fw.png"))
-            brdf_map_df = torch.cat([render_pkg_df["albedo"], render_pkg_df["roughness"], render_pkg_df["metallic"],], dim=2,)
+            brdf_map_df = torch.cat([render_pkg_df["albedo"], roughness_df, metallic_df,], dim=2,)
             torchvision.utils.save_image(brdf_map_df, os.path.join(brdf_path, f"{idx:05d}_df.png"))
 
             pbr_image_fw = torch.cat([render_pkg_fw["render"], render_pkg_fw["diffuse_rgb"], render_pkg_fw["specular_rgb"]], dim=2)  # [3, H, 3W]
@@ -217,7 +226,7 @@ def render_sets(dataset : ModelParams, chkp_path: str, pipeline : PipelineParams
         (model_params, light_params, _, first_iter) = torch.load(chkp_path)
 
         gaussians = GaussianModel(dataset.sh_degree)
-        scene = Scene(dataset, gaussians, shuffle=False)
+        scene = Scene(dataset, gaussians, shuffle=False, load_gt_normals=True)
         gaussians.restore(model_params)
         
         cubemap = CubemapLight(base_res=256).cuda()
@@ -249,8 +258,6 @@ if __name__ == "__main__":
     parser = ArgumentParser(description="Testing script parameters")
     model = ModelParams(parser, sentinel=True)
     pipeline = PipelineParams(parser)
-
-    op = OptimizationParams(parser)
 
     # parser.add_argument("--iteration", default=-1, type=int)
     parser.add_argument("--skip_train", action="store_true")

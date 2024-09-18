@@ -311,39 +311,8 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
         rotations = rotations,
         cov3D_precomp = cov3D_precomp
     )
-    try:
-        gt_mask = viewpoint_camera.gt_normal_mask.cuda()
-        # print("process deferred shading with gt mask")
-    except:
-        gt_mask = None
-    if gt_mask is not None:
-        rendered_image = torch.where(gt_mask, rendered_image, bg_color[:,None,None])
-        render_normal = torch.where(gt_mask, render_normal, torch.zeros_like(render_normal))
-        surf_normal = torch.where(gt_mask, surf_normal, torch.zeros_like(surf_normal))
-        render_dist = torch.where(gt_mask, render_dist, torch.zeros_like(render_dist))
-    else:
-        mask = (render_normal != 0).all(0, keepdim=True)
-        rendered_image = torch.where(mask, rendered_image, bg_color[:,None,None])
-        render_normal = torch.where(mask, render_normal, torch.zeros_like(render_normal))
-        surf_normal = torch.where(mask, surf_normal, torch.zeros_like(surf_normal))
-        render_dist = torch.where(mask, render_dist, torch.zeros_like(render_dist))
 
-    if pipe.tone:
-        rendered_image = aces_film(rendered_image)
-    else:
-        rendered_image = rendered_image.clamp(min=0.0, max=1.0)
-    if pipe.gamma:
-        rendered_image = linear_to_srgb(rendered_image.squeeze())
-
-
-    # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
-    # They will be excluded from value updates used in the splitting criteria.
-    rets =  {"render": rendered_image,
-            "viewspace_points": means2D,
-            "visibility_filter" : radii > 0,
-            "radii": radii,
-    }
-
+    
     # additional regularizations
     render_alpha = allmap[1:2]
 
@@ -352,6 +321,16 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
     render_normal = allmap[2:5]
     render_normal = (render_normal.permute(1,2,0) @ (viewpoint_camera.world_view_transform[:3,:3].T)).permute(2,0,1)
     # render_normal = safe_normalize(render_normal)
+
+    try:
+        gt_mask = viewpoint_camera.gt_normal_mask.cuda()
+        print("process forward shading with gt mask")
+    except:
+        gt_mask = None
+    if gt_mask is not None:
+        mask = gt_mask
+    else:
+        mask = (render_normal != 0).all(0, keepdim=True)
     
     # get median depth map
     render_depth_median = allmap[5:6]
@@ -377,6 +356,29 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
     # remember to multiply with accum_alpha since render_normal is unnormalized.
     surf_normal = surf_normal * (render_alpha).detach()
 
+   
+    rendered_image = torch.where(mask, rendered_image, bg_color[:,None,None])
+    render_normal = torch.where(mask, render_normal, torch.zeros_like(render_normal))
+    surf_normal = torch.where(mask, surf_normal, torch.zeros_like(surf_normal))
+    render_dist = torch.where(mask, render_dist, torch.zeros_like(render_dist))
+    render_alpha = torch.where(mask, render_alpha, torch.zeros_like(render_alpha))
+
+    if pipe.tone:
+        rendered_image = aces_film(rendered_image)
+    else:
+        rendered_image = rendered_image.clamp(min=0.0, max=1.0)
+    if pipe.gamma:
+        rendered_image = linear_to_srgb(rendered_image.squeeze())
+
+
+    # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
+    # They will be excluded from value updates used in the splitting criteria.
+    rets =  {"render": rendered_image,
+            "viewspace_points": means2D,
+            "visibility_filter" : radii > 0,
+            "radii": radii,
+    }
+
     rets.update({
             'rend_alpha': render_alpha,
             'rend_normal': render_normal,
@@ -387,7 +389,6 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
     })
 
     
-
     if speed:
         return rets
 
@@ -415,7 +416,7 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
                 scales = scales,
                 rotations = rotations,
                 cov3D_precomp = cov3D_precomp)[0]
-            out_extras[k] = image
+            out_extras[k] = torch.where(mask, image, bg_color[:,None,None])
     rets.update(out_extras)
     # if not w_metallic:
     #     rets["metallic"] = torch.ones_like(rets["roughness"]).cuda()
@@ -514,15 +515,19 @@ def pbr_render_df(viewpoint_camera,
     render_normal = allmap[2:5]
     render_normal = (render_normal.permute(1,2,0) @ (viewpoint_camera.world_view_transform[:3,:3].T)).permute(2,0,1)
     
-    render_normal = torch.where(
-        torch.norm(render_normal, dim=0, keepdim=True) > 0,
-        F.normalize(render_normal, dim=0, p=2),
-        render_normal,
-    )
-
     # get median depth map
     render_depth_median = allmap[5:6]
     render_depth_median = torch.nan_to_num(render_depth_median, 0, 0)
+
+    try:
+        gt_mask = viewpoint_camera.gt_normal_mask.cuda()
+        print("process deferred shading with gt mask")
+    except:
+        gt_mask = None
+    if gt_mask is not None:
+        mask = gt_mask
+    else:
+        mask = (render_normal != 0).all(0, keepdim=True)
 
     # get expected depth map
     render_depth_expected = allmap[0:1]
@@ -543,12 +548,6 @@ def pbr_render_df(viewpoint_camera,
     surf_normal = surf_normal.permute(2,0,1)
     # remember to multiply with accum_alpha since render_normal is unnormalized.
     surf_normal = surf_normal * (render_alpha).detach()
-
-    surf_normal = torch.where(
-        torch.norm(surf_normal, dim=0, keepdim=True) > 0,
-        F.normalize(surf_normal, dim=0, p=2),
-        surf_normal,
-    )
 
     # # just for verify the normals
     # normalsG_W = pc.get_normals
@@ -597,24 +596,12 @@ def pbr_render_df(viewpoint_camera,
     
     
     rendered_image = results
-    try:
-        gt_mask = viewpoint_camera.gt_normal_mask.cuda()
-        # print("process deferred shading with gt mask")
-    except:
-        gt_mask = None
-
-    if gt_mask is not None:
-        rendered_image = torch.where(gt_mask, rendered_image, bg_color[:,None,None])
-        render_normal = torch.where(gt_mask, render_normal, torch.zeros_like(render_normal))
-        surf_normal = torch.where(gt_mask, surf_normal, torch.zeros_like(surf_normal))
-        render_dist = torch.where(gt_mask, render_dist, torch.zeros_like(render_dist))
-    else:
-        mask = (render_normal != 0).all(0, keepdim=True)
-        rendered_image = torch.where(mask, rendered_image, bg_color[:,None,None])
-        render_normal = torch.where(mask, render_normal, torch.zeros_like(render_normal))
-        surf_normal = torch.where(mask, surf_normal, torch.zeros_like(surf_normal))
-        render_dist = torch.where(mask, render_dist, torch.zeros_like(render_dist))
-
+    
+    rendered_image = torch.where(mask, rendered_image, bg_color[:,None,None])
+    render_normal = torch.where(mask, render_normal, torch.zeros_like(render_normal))
+    surf_normal = torch.where(mask, surf_normal, torch.zeros_like(surf_normal))
+    render_dist = torch.where(mask, render_dist, torch.zeros_like(render_dist))
+    render_alpha = torch.where(mask, render_alpha, torch.zeros_like(render_alpha))
 
     if pipe.tone:
         rendered_image = aces_film(rendered_image)
@@ -638,6 +625,16 @@ def pbr_render_df(viewpoint_camera,
     if speed:
         return rets
 
+
+
+    for key in deffered_input.keys():
+        if deffered_input[key] is not None:
+            print(key)
+            deffered_input[key] = torch.where(mask, deffered_input[key], bg_color[:,None,None])
+    for key in extras.keys():
+        if extras[key] is not None:
+            print(key)
+            extras[key] = torch.where(mask, extras[key], bg_color[:,None,None])
 
     rets.update(deffered_input) # albedo, roughness, metallic
     rets.update(extras) #diffuse_light, specular_light, diffuse_rgb, specular_rgb

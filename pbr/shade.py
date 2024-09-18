@@ -275,6 +275,9 @@ def gsir_deferred_shading(
     """
 
     H, W, _ = normals.shape
+    normals = torch.where(torch.norm(normals, dim=0, keepdim=True) > 0, 
+                          F.normalize(normals, dim=0, p=2), 
+                          normals)
 
     normals = normals.reshape(1, H, W, 3)
     view_dirs = view_dirs.reshape(1, H, W, 3)

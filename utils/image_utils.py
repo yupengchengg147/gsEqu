@@ -62,15 +62,40 @@ def render_net_image(render_pkg, render_items, render_mode, camera):
         net_image = colormap(net_image)
     return net_image
 
-def apply_colormap(image, cmap="viridis"):
+# def apply_colormap(image, cmap="gray"):
+#     colormap = cm.get_cmap(cmap)
+#     colormap = torch.tensor(colormap.colors).to(image.device)  # type: ignore
+#     image_long = (image * 255).long()
+#     image_long_min = torch.min(image_long)
+#     image_long_max = torch.max(image_long)
+#     assert image_long_min >= 0, f"the min value is {image_long_min}"
+#     assert image_long_max <= 255, f"the max value is {image_long_max}"
+#     return colormap[image_long[..., 0]]
+
+
+
+def apply_colormap(image, cmap="gray"):
+    # Get the colormap
     colormap = cm.get_cmap(cmap)
-    colormap = torch.tensor(colormap.colors).to(image.device)  # type: ignore
+    
+    # Convert colormap to a set of colors (apply to 256 values)
+    colors = colormap(np.linspace(0, 1, 256))[:, :3]  # Get RGB values only
+    
+    # Convert the colors to a PyTorch tensor
+    colormap_tensor = torch.tensor(colors).to(image.device)  # [256, 3]
+
+    # Scale image to have values between 0 and 255
     image_long = (image * 255).long()
+
+    # Ensure that the image values are in the correct range
     image_long_min = torch.min(image_long)
     image_long_max = torch.max(image_long)
     assert image_long_min >= 0, f"the min value is {image_long_min}"
     assert image_long_max <= 255, f"the max value is {image_long_max}"
-    return colormap[image_long[..., 0]]
+
+    # Apply the colormap to the image
+    return colormap_tensor[image_long[..., 0]] 
+
 
 def apply_depth_colormap(depth, cmap="turbo", min=None, max=None):
     near_plane = float(torch.min(depth)) if min is None else min
