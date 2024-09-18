@@ -72,6 +72,9 @@ class PipelineParams(ParamGroup):
         self.gamma = False
         self.tone = False
 
+        self.fw_rate = 0.2
+
+
         super().__init__(parser, "Pipeline Parameters")
 
 class OptimizationParams(ParamGroup):
@@ -103,6 +106,7 @@ class OptimizationParams(ParamGroup):
         self.df_iter = 1
         self.fw_iter = 1
         
+
         self.densify_from_iter = 500
         self.densify_until_iter = 40_000
         self.densify_grad_threshold = 0.0002

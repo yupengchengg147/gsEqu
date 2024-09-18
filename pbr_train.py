@@ -17,7 +17,7 @@ from scene import Scene, GaussianModel
 from pbr import CubemapLight, get_brdf_lut
 
 
-from gaussian_renderer import pbr_render_fw, network_gui, render, pbr_render_df
+from gaussian_renderer import pbr_render_fw, network_gui, render, pbr_render_df, pbr_render_st
 
 from train import prepare_output_and_logger, training_report
 
@@ -153,6 +153,7 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
                         brdf_lut= brdf_lut,
                         speed=True,
                         )
+                
             elif render_mode == "iterative":
                 assert opt.fw_iter > 0 and opt.df_iter > 0, "iterative interval should be larger than 0"
                 
@@ -186,7 +187,9 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
                         speed=True,
                         )
 
-            elif render_mode == "stochastic" and opt.fw_rate > 0 and opt.fw_rate < 1.:
+            elif render_mode == "stochastic":
+                assert pipe.fw_rate > 0 and pipe.fw_rate < 1, "fw_rate should be in (0,1)"
+
                 render_pkg_fw = pbr_render_fw(
                             viewpoint_camera=viewpoint_cam,
                             pc=gaussians,
@@ -196,6 +199,7 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
                             brdf_lut=brdf_lut,
                             speed=True,
                             )
+                
                 H, W = viewpoint_cam.image_height, viewpoint_cam.image_width
                 c2w = torch.inverse(viewpoint_cam.world_view_transform.T)  # [4, 4]
                 view_dirs = -(( F.normalize(canonical_rays[:, None, :], p=2, dim=-1)* c2w[None, :3, :3]).sum(dim=-1) #[HW,3]
@@ -212,18 +216,14 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
                     speed=True,
                     )
                 
-                fw_mask = torch.rand(H, W, device="cuda") < opt.fw_rate # [H,W]
-                render_pkg = {
-                    "render": fw_mask[None,:, :] * render_pkg_fw["render"] + (~fw_mask[None,:, :]) * render_pkg_df["render"],
-                    "viewspace_points": fw_mask[None,:, :] * render_pkg_fw["viewspace_points"] + (~fw_mask[None,:, :]) * render_pkg_df["viewspace_points"],
-                    "visibility_filter": render_pkg_fw["visibility_filter"],
-                    "radii": render_pkg_fw["radii"],
-                    "rend_alpha": fw_mask.flatten() * render_pkg_fw["rend_alpha"] + (~fw_mask.flatten()) * render_pkg_df["rend_alpha"],
-                    "rend_normal": fw_mask[None,:, :] * render_pkg_fw["rend_normal"] + (~fw_mask[None,:, :]) * render_pkg_df["rend_normal"],
-                    "rend_dist": fw_mask.flatten() * render_pkg_fw["rend_dist"] + (~fw_mask.flatten()) * render_pkg_df["rend_dist"],
-                    "surf_depth": fw_mask.flatten() * render_pkg_fw["surf_depth"] + (~fw_mask.flatten()) * render_pkg_df["surf_depth"],
-                    "surf_normal": fw_mask[None,:, :] * render_pkg_fw["surf_normal"] + (~fw_mask[None,:, :]) * render_pkg_df["surf_normal"]
-                }
+                fw_mask = torch.rand(H, W, device="cuda") < pipe.fw_rate # [H,W]
+                
+                render_pkg = render_pkg_fw
+                for key in ["render", "albedo", "roughness", "metallic", 
+                            "diffuse_rgb", "specular_rgb", 
+                            "diffuse_light", "specular_light"]:
+                    if render_pkg_fw[key] is not None:
+                        render_pkg[key] = fw_mask[None,:, :] * render_pkg_fw[key] + (~fw_mask[None,:, :]) * render_pkg_df[key]
 
                 
             else:
@@ -318,6 +318,10 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
                                 testing_iterations, scene, pbr_render_df, 
                                 (cubemap, pipe, background, view_dirs, brdf_lut, False)
                                 )
+            elif render_mode == "stochastic":
+                training_report(tb_writer, grad_dict, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), 
+                                testing_iterations, scene, pbr_render_st, 
+                                (cubemap, pipe, background, view_dirs, brdf_lut, False, pipe.fw_rate)
             else:
                 raise ValueError("Unknown render mode")
             

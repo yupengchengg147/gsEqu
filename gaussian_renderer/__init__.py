@@ -311,6 +311,22 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
         rotations = rotations,
         cov3D_precomp = cov3D_precomp
     )
+    try:
+        gt_mask = viewpoint_camera.gt_normal_mask.cuda()
+        # print("process deferred shading with gt mask")
+    except:
+        gt_mask = None
+    if gt_mask is not None:
+        rendered_image = torch.where(gt_mask, rendered_image, bg_color[:,None,None])
+        render_normal = torch.where(gt_mask, render_normal, torch.zeros_like(render_normal))
+        surf_normal = torch.where(gt_mask, surf_normal, torch.zeros_like(surf_normal))
+        render_dist = torch.where(gt_mask, render_dist, torch.zeros_like(render_dist))
+    else:
+        mask = (render_normal != 0).all(0, keepdim=True)
+        rendered_image = torch.where(mask, rendered_image, bg_color[:,None,None])
+        render_normal = torch.where(mask, render_normal, torch.zeros_like(render_normal))
+        surf_normal = torch.where(mask, surf_normal, torch.zeros_like(surf_normal))
+        render_dist = torch.where(mask, render_dist, torch.zeros_like(render_dist))
 
     if pipe.tone:
         rendered_image = aces_film(rendered_image)
@@ -496,11 +512,8 @@ def pbr_render_df(viewpoint_camera,
     # get normal map
     # transform normal from view space to world space
     render_normal = allmap[2:5]
-    rn0 = render_normal
     render_normal = (render_normal.permute(1,2,0) @ (viewpoint_camera.world_view_transform[:3,:3].T)).permute(2,0,1)
     
-    rn = render_normal
-
     render_normal = torch.where(
         torch.norm(render_normal, dim=0, keepdim=True) > 0,
         F.normalize(render_normal, dim=0, p=2),
@@ -629,4 +642,49 @@ def pbr_render_df(viewpoint_camera,
     rets.update(deffered_input) # albedo, roughness, metallic
     rets.update(extras) #diffuse_light, specular_light, diffuse_rgb, specular_rgb
     return rets
+
+
+def pbr_render_st(viewpoint_camera, pc: GaussianModel, 
+                  light:CubemapLight, pipe, bg_color : torch.Tensor, 
+                  view_dirs : torch.Tensor, #[H,W,3]
+                  brdf_lut: Optional[torch.Tensor] = None, 
+                  speed=False, fw_rate=0.5, scaling_modifier = 1.0):
+    """
+    mixed stochastic shading with rate fw_rate, <arm> parameterazation
+    """
+
+    assert fw_rate > 0 and fw_rate < 1, "fw_rate should be in (0,1)"
+
+    render_pkg_fw = pbr_render_fw(
+                viewpoint_camera=viewpoint_camera,
+                pc=pc,
+                light=light,
+                pipe=pipe,
+                bg_color=bg_color,
+                brdf_lut=brdf_lut,
+                speed=speed,
+                )
     
+
+    render_pkg_df = pbr_render_df(
+        viewpoint_camera=viewpoint_camera,
+        pc=pc,
+        light=light,
+        pipe=pipe,
+        bg_color=bg_color,
+        view_dirs = view_dirs,
+        brdf_lut= brdf_lut,
+        speed=speed,
+        )
+    
+    H, W = viewpoint_camera.image_height, viewpoint_camera.image_width
+    fw_mask = torch.rand(H, W, device="cuda") < fw_rate # [H,W]
+    
+    render_pkg = render_pkg_fw
+    for key in ["render", "albedo", "roughness", "metallic", 
+                "diffuse_rgb", "specular_rgb", 
+                "diffuse_light", "specular_light"]:
+        if render_pkg_fw[key] is not None:
+            render_pkg[key] = fw_mask[None,:, :] * render_pkg_fw[key] + (~fw_mask[None,:, :]) * render_pkg_df[key]
+    
+    return render_pkg

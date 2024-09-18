@@ -91,6 +91,7 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
                     brdf_lut= brdf_lut,
                     speed=False,
                     )
+            
         elif mode == "iterative":
             render_pkg_fw = pbr_render_fw(
                 viewpoint_camera=view,
@@ -119,6 +120,47 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
             render_pkg = {}
             for keys in render_pkg_df.keys():
                 render_pkg[keys] = (render_pkg_fw[keys] + render_pkg_df[keys])/2.
+        
+        elif mode == "stochastic":
+            assert pipeline.fw_rate > 0 and pipeline.fw_rate < 1, "fw_rate should be in (0,1)"
+
+            render_pkg_fw = pbr_render_fw(
+                        viewpoint_camera=view,
+                        pc=gaussians,
+                        light=cubemap,
+                        pipe=pipeline,
+                        bg_color=background,
+                        brdf_lut=brdf_lut,
+                        speed=False,
+                        )
+            
+            H, W = view.image_height, view.image_width
+            c2w = torch.inverse(view.world_view_transform.T)  # [4, 4]
+            view_dirs = -(( F.normalize(canonical_rays[:, None, :], p=2, dim=-1)* c2w[None, :3, :3]).sum(dim=-1) #[HW,3]
+                        .reshape(H, W, 3)) # direct from screen to cam center
+
+            render_pkg_df = pbr_render_df(
+                viewpoint_camera=view,
+                pc=gaussians,
+                light=cubemap,
+                pipe=pipeline,
+                bg_color=background,
+                view_dirs = view_dirs,
+                brdf_lut= brdf_lut,
+                speed=False,
+                )
+            
+            fw_mask = torch.rand(H, W, device="cuda") < pipeline.fw_rate # [H,W]
+            
+            render_pkg = render_pkg_fw
+            for key in ["render", "albedo", "roughness", "metallic", 
+                        "diffuse_rgb", "specular_rgb", 
+                        "diffuse_light", "specular_light"]:
+                if render_pkg_fw[key] is not None:
+                    render_pkg[key] = fw_mask[None,:, :] * render_pkg_fw[key] + (~fw_mask[None,:, :]) * render_pkg_df[key]
+
+        else:
+            raise ValueError("Unknown render mode")
         
         torch.cuda.synchronize()
 
@@ -150,6 +192,22 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
 
         lights = torch.cat([diffuse_light, specular_light], dim=2)
         torchvision.utils.save_image(lights, os.path.join(light_path, f"{idx:05d}.png"))
+
+        if mode == "stochastic":
+            torchvision.utils.save_image(render_pkg_fw["render"], os.path.join(render_path,'{0:05d}'.format(idx) + "_fw.png"))
+            torchvision.utils.save_image(render_pkg_df["render"], os.path.join(render_path,'{0:05d}'.format(idx) + "_df.png"))
+
+            brdf_map_fw = torch.cat([render_pkg_fw["albedo"], render_pkg_fw["roughness"], render_pkg_fw["metallic"],], dim=2,)
+            torchvision.utils.save_image(brdf_map_fw, os.path.join(brdf_path, f"{idx:05d}_fw.png"))
+            brdf_map_df = torch.cat([render_pkg_df["albedo"], render_pkg_df["roughness"], render_pkg_df["metallic"],], dim=2,)
+            torchvision.utils.save_image(brdf_map_df, os.path.join(brdf_path, f"{idx:05d}_df.png"))
+
+            pbr_image_fw = torch.cat([render_pkg_fw["render"], render_pkg_fw["diffuse_rgb"], render_pkg_fw["specular_rgb"]], dim=2)  # [3, H, 3W]
+            torchvision.utils.save_image(pbr_image_fw, os.path.join(pbr_path, f"{idx:05d}_fw.png"))
+            pbr_image_df = torch.cat([render_pkg_df["render"], render_pkg_df["diffuse_rgb"], render_pkg_df["specular_rgb"]], dim=2)
+            torchvision.utils.save_image(pbr_image_df, os.path.join(pbr_path, f"{idx:05d}_df.png"))
+
+
 
 
 def render_sets(dataset : ModelParams, chkp_path: str, pipeline : PipelineParams, skip_train : bool, skip_test : bool, mode : str):
@@ -191,6 +249,9 @@ if __name__ == "__main__":
     parser = ArgumentParser(description="Testing script parameters")
     model = ModelParams(parser, sentinel=True)
     pipeline = PipelineParams(parser)
+
+    op = OptimizationParams(parser)
+
     # parser.add_argument("--iteration", default=-1, type=int)
     parser.add_argument("--skip_train", action="store_true")
     parser.add_argument("--skip_test", action="store_true")
