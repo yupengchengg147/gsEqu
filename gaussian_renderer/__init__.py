@@ -276,7 +276,7 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
     #     pass
 
     cos = dot(normalsG_W, wo_W) # (numG, 1)
-    mul = torch.where(cos > 0, 1., -1.) # (numG, 1)
+    mul = torch.where(cos > 0, 1., 0) # (numG, 1)
     normalsG_W = normalsG_W * mul # (numG, 3)
 
     wi_W = safe_normalize(reflect(wo_W, normalsG_W)) # (numG, 3)
@@ -331,6 +331,7 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
         mask = gt_mask
     else:
         mask = (render_normal != 0).all(0, keepdim=True)
+        # mask = (render_alpha > 0.5).all(0, keepdim=True)
     
     # get median depth map
     render_depth_median = allmap[5:6]
