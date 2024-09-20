@@ -200,7 +200,8 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
                light:CubemapLight, pipe, bg_color : torch.Tensor, 
                brdf_lut: Optional[torch.Tensor] = None, 
                speed=False, 
-               scaling_modifier = 1.0, ):
+               scaling_modifier = 1.0, 
+               inference = False):
     """
     forward shading, <arm> parameterazation
     """
@@ -330,7 +331,10 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
     if gt_mask is not None:
         mask = gt_mask
     else:
-        mask = (render_normal != 0).all(0, keepdim=True)
+        if not inference:
+            mask = (render_normal != 0).all(0, keepdim=True)
+        else:
+            mask = (render_normal != 0).all(0, keepdim=True) and (render_alpha >= 0.5).all(0, keepdim=True)
         # mask = (render_alpha > 0.5).all(0, keepdim=True)
     
     # get median depth map
@@ -434,7 +438,8 @@ def pbr_render_df(viewpoint_camera,
                   bg_color: torch.Tensor, 
                   view_dirs : torch.Tensor, #[H,W,3] 
                   brdf_lut: Optional[torch.Tensor] = None, 
-                  speed=False, scaling_modifier = 1.0):
+                  speed=False, scaling_modifier = 1.0, 
+                  inference = False):
     
     """
     deffered shading, <arm> parameterazation
@@ -528,7 +533,10 @@ def pbr_render_df(viewpoint_camera,
     if gt_mask is not None:
         mask = gt_mask
     else:
-        mask = (render_normal != 0).all(0, keepdim=True)
+        if not inference:
+            mask = (render_normal != 0).all(0, keepdim=True)
+        else:
+            mask = (render_normal != 0).all(0, keepdim=True) and (render_alpha >= 0.5).all(0, keepdim=True)
 
     # get expected depth map
     render_depth_expected = allmap[0:1]

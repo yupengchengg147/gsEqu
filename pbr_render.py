@@ -73,7 +73,8 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
             pipe=pipeline,
             bg_color=background,
             brdf_lut=brdf_lut,
-            speed=False,)
+            speed=False, 
+            inference=True,)
         
         elif mode == "df":
 
@@ -90,6 +91,7 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
                     view_dirs = view_dirs,
                     brdf_lut= brdf_lut,
                     speed=False,
+                    inference=True,
                     )
             
         elif mode == "iterative":
@@ -101,6 +103,7 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
                 bg_color=background,
                 brdf_lut=brdf_lut,
                 speed=False,
+                inference=True,
                 )
 
             H, W = view.image_height, view.image_width
@@ -116,6 +119,7 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
                 view_dirs = view_dirs,
                 brdf_lut= brdf_lut,
                 speed=False,
+                inference=True,
                 )
             render_pkg = {}
             for keys in render_pkg_df.keys():
@@ -132,6 +136,7 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
                         bg_color=background,
                         brdf_lut=brdf_lut,
                         speed=False,
+                        inference=True,
                         )
             
             H, W = view.image_height, view.image_width
@@ -148,6 +153,7 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
                 view_dirs = view_dirs,
                 brdf_lut= brdf_lut,
                 speed=False,
+                inference=True,
                 )
             
             fw_mask = torch.rand(H, W, device="cuda") < pipeline.fw_rate # [H,W]
