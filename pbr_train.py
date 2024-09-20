@@ -30,12 +30,12 @@ except ImportError:
 
 
 
-def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, mode):
+def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, mode, gt_mask):
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree)
 
-    scene = Scene(dataset, gaussians, load_gt_normals=True)
+    scene = Scene(dataset, gaussians, load_gt_normals=gt_mask)
     canonical_rays = scene.get_canonical_rays()
 
     gaussians.training_setup(opt)
@@ -380,6 +380,9 @@ if __name__ == "__main__":
     # parser.add_argument("--fw_iter", type=int, default=1)
     # parser.add_argument("--df_iter", type=int, default=1)
 
+    parser.add_argument('--gt_mask', action='store_true', default=False)
+
+
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
 
@@ -391,7 +394,8 @@ if __name__ == "__main__":
     # Start GUI server, configure and run training
     network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    pbr_training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.mode)
+    pbr_training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, 
+                 args.mode, args.gt_mask)
 
     # All done
     print("\nTraining complete.")
