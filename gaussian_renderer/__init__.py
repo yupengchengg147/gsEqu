@@ -325,7 +325,7 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
 
     try:
         gt_mask = viewpoint_camera.gt_normal_mask.cuda()
-        print("process forward shading with gt mask")
+        # print("process forward shading with gt mask")
     except:
         gt_mask = None
     
@@ -335,7 +335,7 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
         if not inference:
             mask = (render_normal != 0).all(0, keepdim=True)
         else:
-            mask = (render_normal != 0).all(0, keepdim=True) and (render_alpha >= 0.5).all(0, keepdim=True)
+            mask = (render_normal != 0).all(0, keepdim=True) & (render_alpha >= 0.5).all(0, keepdim=True)
     
     # get median depth map
     render_depth_median = allmap[5:6]
@@ -527,7 +527,7 @@ def pbr_render_df(viewpoint_camera,
 
     try:
         gt_mask = viewpoint_camera.gt_normal_mask.cuda()
-        print("process deferred shading with gt mask")
+        # print("process deferred shading with gt mask")
     except:
         gt_mask = None
     if gt_mask is not None:
@@ -536,7 +536,7 @@ def pbr_render_df(viewpoint_camera,
         if not inference:
             mask = (render_normal != 0).all(0, keepdim=True)
         else:
-            mask = (render_normal != 0).all(0, keepdim=True) and (render_alpha >= 0.5).all(0, keepdim=True)
+            mask = (render_normal != 0).all(0, keepdim=True) & (render_alpha >= 0.5).all(0, keepdim=True)
 
     # get expected depth map
     render_depth_expected = allmap[0:1]
@@ -638,11 +638,11 @@ def pbr_render_df(viewpoint_camera,
 
     for key in deffered_input.keys():
         if deffered_input[key] is not None:
-            print(key)
+            # print(key)
             deffered_input[key] = torch.where(mask, deffered_input[key], bg_color[:,None,None])
     for key in extras.keys():
         if extras[key] is not None:
-            print(key)
+            # print(key)
             extras[key] = torch.where(mask, extras[key], bg_color[:,None,None])
 
     rets.update(deffered_input) # albedo, roughness, metallic
