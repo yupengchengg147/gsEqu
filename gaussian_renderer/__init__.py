@@ -335,7 +335,7 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
         if not inference:
             mask = (render_normal != 0).all(0, keepdim=True)
         else:
-            mask = (render_normal != 0).all(0, keepdim=True) & (render_alpha >= 0.5).all(0, keepdim=True)
+            mask = (render_normal != 0).all(0, keepdim=True) | (render_alpha >= 0.5).all(0, keepdim=True)
     
     # get median depth map
     render_depth_median = allmap[5:6]
@@ -536,7 +536,7 @@ def pbr_render_df(viewpoint_camera,
         if not inference:
             mask = (render_normal != 0).all(0, keepdim=True)
         else:
-            mask = (render_normal != 0).all(0, keepdim=True) & (render_alpha >= 0.5).all(0, keepdim=True)
+            mask = (render_normal != 0).all(0, keepdim=True) | (render_alpha >= 0.5).all(0, keepdim=True)
 
     # get expected depth map
     render_depth_expected = allmap[0:1]
