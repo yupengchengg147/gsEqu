@@ -215,6 +215,8 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
     roughness=pc.get_roughness
     metallic=pc.get_metallic
 
+
+
     results = pbr_shading_2dgs(light = light, 
                               normals=normalsG_W[None, None,:,:], # ( 1, 1, numG, 3)
                               wo= wo_W, # (numG, 3)
@@ -278,7 +280,7 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
         if not inference:
             mask = (render_normal != 0).all(0, keepdim=True)
         else:
-            mask = (render_normal != 0).all(0, keepdim=True) | (render_alpha >= 0.5).all(0, keepdim=True)
+            mask = (render_normal != 0).all(0, keepdim=True) # | (render_alpha >= 0.5).all(0, keepdim=True)
     
     p_hom = torch.cat([pc.get_xyz, torch.ones_like(pc.get_xyz[...,:1])], -1).unsqueeze(-1)
     p_view = torch.matmul(viewpoint_camera.world_view_transform.transpose(0,1), p_hom)
@@ -319,7 +321,7 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
     rendered_image = torch.where(mask, rendered_image, bg_color[:,None,None])
     render_normal = torch.where(mask, render_normal, torch.zeros_like(render_normal))
     surf_normal = torch.where(mask, surf_normal, torch.zeros_like(surf_normal))
-    render_alpha = torch.where(mask, render_alpha, torch.zeros_like(render_alpha))
+    # render_alpha = torch.where(mask, render_alpha, torch.zeros_like(render_alpha))
     render_depth = torch.where(mask, render_depth, torch.zeros_like(render_depth))
     delta_n = torch.where(mask, delta_n, torch.zeros_like(delta_n))
 
@@ -582,12 +584,12 @@ def pbr_render_df(viewpoint_camera,
         if not inference:
             mask = (render_normal != 0).all(0, keepdim=True)
         else:
-            mask = (render_normal != 0).all(0, keepdim=True) | (render_alpha >= 0.5).all(0, keepdim=True)
+            mask = (render_normal != 0).all(0, keepdim=True) # | (render_alpha >= 0.5).all(0, keepdim=True)
     
     rendered_image = torch.where(mask, rendered_image, bg_color[:,None,None])
     render_normal = torch.where(mask, render_normal, torch.zeros_like(render_normal))
     surf_normal = torch.where(mask, surf_normal, torch.zeros_like(surf_normal))
-    render_alpha = torch.where(mask, render_alpha, torch.zeros_like(render_alpha))
+    # render_alpha = torch.where(mask, render_alpha, torch.zeros_like(render_alpha))
     render_depth = torch.where(mask, render_depth, torch.zeros_like(render_depth))
     delta_n = torch.where(mask, delta_n, torch.zeros_like(delta_n))
 

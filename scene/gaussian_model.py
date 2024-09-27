@@ -222,11 +222,12 @@ class GaussianModel:
 
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
-        normals = np.zeros_like(np.asarray(pcd.points, dtype=np.float32))
-        normals2 = np.copy(normals)
 
-        self._normal_0 = nn.Parameter(torch.from_numpy(normals).to(self._xyz.device).requires_grad_(True))
-        self._normal_1 = nn.Parameter(torch.from_numpy(normals2).to(self._xyz.device).requires_grad_(True))
+        normals = torch.rand((fused_point_cloud.shape[0], 3), dtype=torch.float, device="cuda")
+        self._normal_0 = nn.Parameter(normals.requires_grad_(True))
+        normals2 = torch.rand((fused_point_cloud.shape[0], 3), dtype=torch.float, device="cuda")
+        self._normal_1 = nn.Parameter(normals2.requires_grad_(True))
+
 
 
 
@@ -463,8 +464,8 @@ class GaussianModel:
         self.denom = self.denom[valid_points_mask]
         self.max_radii2D = self.max_radii2D[valid_points_mask]
 
-        self._normal = optimizable_tensors["normal0"]
-        self._normal2 = optimizable_tensors["normal1"]
+        self._normal_0 = optimizable_tensors["normal0"]
+        self._normal_1 = optimizable_tensors["normal1"]
 
     def cat_tensors_to_optimizer(self, tensors_dict):
         optimizable_tensors = {}
@@ -533,8 +534,7 @@ class GaussianModel:
                                               torch.max(self.get_scaling, dim=1).values > self.percent_dense*scene_extent)
 
         stds = self.get_scaling[selected_pts_mask].repeat(N,1)
-        stds = torch.cat([stds, 0 * torch.ones_like(stds[:,:1])], dim=-1)
-        means = torch.zeros_like(stds)
+        means =torch.zeros((stds.size(0), 3),device="cuda")
         samples = torch.normal(mean=means, std=stds)
         rots = build_rotation(self._rotation[selected_pts_mask]).repeat(N,1,1)
         new_xyz = torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + self.get_xyz[selected_pts_mask].repeat(N, 1)
@@ -549,6 +549,10 @@ class GaussianModel:
         new_roughness = self._roughness[selected_pts_mask].repeat(N, 1)
         new_metallic = self._metallic[selected_pts_mask].repeat(N, 1)
         
+        # print("Shape of self._xyz:", self._xyz.shape)
+        # print("Shape of self._normal_0:", self._normal_0.shape)
+        # print("Shape of selected_pts_mask:", selected_pts_mask.shape)
+
         new_normal0 = self._normal_0[selected_pts_mask].repeat(N, 1)
         new_normal1 = self._normal_1[selected_pts_mask].repeat(N, 1)
 
@@ -565,7 +569,8 @@ class GaussianModel:
         selected_pts_mask = torch.where(torch.norm(grads, dim=-1) >= grad_threshold, True, False)
         selected_pts_mask = torch.logical_and(selected_pts_mask,
                                               torch.max(self.get_scaling, dim=1).values <= self.percent_dense*scene_extent)
-        
+        # if torch.sum(selected_pts_mask) == 0:
+        #     return
         new_xyz = self._xyz[selected_pts_mask]
         new_features_dc = self._features_dc[selected_pts_mask]
         new_features_rest = self._features_rest[selected_pts_mask]
@@ -576,7 +581,16 @@ class GaussianModel:
         new_scaling = self._scaling[selected_pts_mask]
         new_rotation = self._rotation[selected_pts_mask]
 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_albedo,new_roughness,new_metallic, new_scaling, new_rotation)
+        # print("Shape of self._xyz:", self._xyz.shape)
+        # print("Shape of self._normal_0:", self._normal_0.shape)
+        # print("Shape of selected_pts_mask:", selected_pts_mask.shape)
+
+        new_normal0 = self._normal_0[selected_pts_mask]
+        new_normal1 = self._normal_1[selected_pts_mask]
+
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, 
+                                   new_albedo,new_roughness,new_metallic, new_scaling, new_rotation, 
+                                   new_normal0, new_normal1)
 
     def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size):
         grads = self.xyz_gradient_accum / self.denom
@@ -593,6 +607,9 @@ class GaussianModel:
         self.prune_points(prune_mask)
 
         torch.cuda.empty_cache()
+    
+
+    
 
     def add_densification_stats(self, viewspace_point_tensor, update_filter):
         self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[update_filter, :2], dim=-1, keepdim=True)

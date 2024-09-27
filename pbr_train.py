@@ -102,9 +102,6 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
             
             render_pkg = render(viewpoint_cam, gaussians, pipe, background)
             image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
-            dist = render_pkg["rend_dist"]
-            rend_normal  = render_pkg['rend_normal']
-            normal_from_d = render_pkg['surf_normal']
 
         elif iteration == (opt.warmup_iterations+1):
             cubemap.train()
@@ -247,18 +244,25 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
         Ll1 = l1_loss(image, gt_image)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
 
-        # regularization
-        lambda_normal = opt.lambda_normal if iteration > opt.normal_ref_start_iter and iteration < opt.normal_reg_until_iter else 0.0
-        normal_error = (1 - (rend_normal * normal_from_d).sum(dim=0))[None]
-        normal_loss = lambda_normal * (normal_error).mean()
+        if iteration > (opt.warmup_iterations+1):
+            # regularization
+            lambda_normal = opt.lambda_normal if iteration > opt.normal_ref_start_iter and iteration < opt.normal_reg_until_iter else 0.0
+            normal_error = (1 - (rend_normal * normal_from_d).sum(dim=0))[None]
+            normal_loss = lambda_normal * (normal_error).mean()
 
-        lambda_alpha = opt.lambda_alpha if iteration > opt.normal_ref_start_iter else 0.0 #1e-3
-        alpha_loss = zero_one_loss(alpha) * lambda_alpha
+            lambda_alpha = opt.lambda_alpha if iteration > opt.normal_ref_start_iter else 0.0 #1e-3
+            alpha_loss = zero_one_loss(alpha) * lambda_alpha
 
-        lambda_delta_n = opt.lambda_delta_n if iteration > opt.normal_ref_start_iter else 0.0 #1e-3
-        delta_n_loss = delta_normal_loss(render_pkg["delta_n"], render_pkg["alpha"]) * lambda_delta_n
+            lambda_delta_n = opt.lambda_delta_n if iteration > opt.normal_ref_start_iter else 0.0 #1e-3
+            delta_n_loss = delta_normal_loss(render_pkg["delta_n"], alpha) * lambda_delta_n
 
-        total_loss = loss + alpha_loss + normal_loss + delta_n_loss
+            total_loss = loss + alpha_loss + normal_loss + delta_n_loss
+        
+        else:
+            total_loss = loss
+            delta_n_loss = torch.tensor(0.0, device="cuda")
+            normal_loss = torch.tensor(0.0, device="cuda") 
+            alpha_loss = torch.tensor(0.0, device="cuda")
 
         total_loss.backward()
         iter_end.record()
@@ -411,4 +415,5 @@ if __name__ == "__main__":
 
 # python pbr_train.py -s /is/cluster/fast/pyu/data/refnerf/helmet -m /is/cluster/fast/pyu/results/helmet/iter_20_1 -w --eval --warmup_iterations 1 --lambda_dist 100 --lambda_normal 0.01 --fw_iter 1 --df_iter 1 --mode iterative --gamma --tone
 
-# python pbr_train.py -s /is/cluster/fast/pyu/data/refnerf/helmet -m /is/cluster/fast/pyu/results/test -w --eval --warmup_iterations 1 --lambda_dist 100 --lambda_normal 0.01 --fw_iter 1 --df_iter 1 --mode stochastic --fw_rate 0.2 --gamma --tone
+# python pbr_train.py -s /is/cluster/fast/pyu/data/refnerf/helmet -m /is/cluster/fast/pyu/results/test -w --eval --warmup_iterations 1 --lambda_normal 0.01  --mode stochastic --fw_rate 0.2 --gamma --tone
+# --fw_iter 1 --df_iter 1

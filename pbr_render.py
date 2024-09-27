@@ -171,7 +171,7 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
         
         torch.cuda.synchronize()
 
-        alpha, rend_normal, dist, surf_depth, normal_from_d = render_pkg["rend_alpha"], render_pkg["rend_normal"], render_pkg["rend_dist"], render_pkg["surf_depth"], render_pkg["surf_normal"]
+        alpha, rend_normal, surf_depth, normal_from_d = render_pkg["rend_alpha"], render_pkg["rend_normal"], render_pkg["surf_depth"], render_pkg["surf_normal"]
         diffuse_rgb, specular_rgb, albedo, roughness, metallic = render_pkg["diffuse_rgb"], render_pkg["specular_rgb"], render_pkg["albedo"], render_pkg["roughness"], render_pkg["metallic"]
         diffuse_light, specular_light = render_pkg["diffuse_light"], render_pkg["specular_light"]
 
@@ -221,6 +221,9 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
             torchvision.utils.save_image(pbr_image_fw, os.path.join(pbr_path, f"{idx:05d}_fw.png"))
             pbr_image_df = torch.cat([render_pkg_df["render"], render_pkg_df["diffuse_rgb"], render_pkg_df["specular_rgb"]], dim=2)
             torchvision.utils.save_image(pbr_image_df, os.path.join(pbr_path, f"{idx:05d}_df.png"))
+
+        
+
 
 
 

@@ -83,7 +83,7 @@ class OptimizationParams(ParamGroup):
         self.warmup_iterations = 1
         
         self.normal_ref_start_iter = 5000
-        self.normal_reg_until_iter = 30_000
+        self.normal_reg_until_iter = 45_000
 
         self.position_lr_init = 0.00016
         self.position_lr_final = 0.0000016
@@ -102,7 +102,7 @@ class OptimizationParams(ParamGroup):
 
         self.lambda_normal = 0.05
         self.lambda_alpha = 1e-3
-        self.lambda_delta_n = 1e-3
+        self.lambda_delta_n = 5e-3
 
         self.opacity_cull = 0.05
 
