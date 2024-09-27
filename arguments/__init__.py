@@ -95,9 +95,15 @@ class OptimizationParams(ParamGroup):
         self.rotation_lr = 0.001
         self.percent_dense = 0.01
 
+        self.normal_lr = 0.0002
+
         self.lambda_dssim = 0.2
-        self.lambda_dist = 1000.0
+        # self.lambda_dist = 1000.0
+
         self.lambda_normal = 0.05
+        self.lambda_alpha = 1e-3
+        self.lambda_delta_n = 1e-3
+
         self.opacity_cull = 0.05
 
         self.densification_interval = 200
@@ -116,13 +122,11 @@ class OptimizationParams(ParamGroup):
         self.brdf_mlp_lr_init = 1.6e-2
         self.brdf_mlp_lr_final = 1.6e-3 
         self.brdf_mlp_lr_delay_mult = 0.01
-        self.brdf_mlp_lr_max_steps = 30_000
+        self.brdf_mlp_lr_max_steps = 45_000
         
         # lr for materials
         self.materials_lr = 0.0002
-        # self.roughness_lr = 0.0002
-
-
+        
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):

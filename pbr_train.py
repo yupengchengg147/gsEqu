@@ -8,7 +8,7 @@ import numpy as np
 from random import randint
 from tqdm import tqdm
 from utils.general_utils import safe_state, get_expon_lr_func
-from utils.loss_utils import l1_loss, ssim
+from utils.loss_utils import l1_loss, ssim, zero_one_loss, delta_normal_loss
 
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
@@ -67,7 +67,8 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
 
     viewpoint_stack = None
     ema_loss_for_log = 0.0
-    ema_dist_for_log = 0.0
+    ema_alpha_for_log = 0.0
+    ema_delta_for_log = 0.0
     ema_normal_for_log = 0.0
     
     # in warmup iterations, set envmap gradient false, set pbr related para gradient false
@@ -76,10 +77,12 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
     gaussians.set_requires_grad("roughness", False)
     gaussians.set_requires_grad("metallic", False)
 
+    gaussians.set_requires_grad("normal_0", False)
+    gaussians.set_requires_grad("normal_1", False)
+
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
     
-
     for iteration in range(first_iter, opt.iterations + 1):
 
         iter_start.record()
@@ -96,6 +99,7 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
         if iteration < (opt.warmup_iterations+1):
             if iteration % 1000 == 0:
                 gaussians.oneupSHdegree()
+            
             render_pkg = render(viewpoint_cam, gaussians, pipe, background)
             image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
             dist = render_pkg["rend_dist"]
@@ -112,8 +116,10 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
             gaussians._albedo.data = gaussians._features_dc.data.clone().squeeze()
             gaussians.set_requires_grad("albedo", True)
             gaussians.set_requires_grad("roughness", True)
-            
             gaussians.set_requires_grad("metallic", True)
+
+            gaussians.set_requires_grad("normal_0", True)
+            gaussians.set_requires_grad("normal_1", True)
             continue
 
         else:
@@ -122,7 +128,6 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
                     lr = brdf_mlp_scheduler_args(iteration - opt.warmup_iterations)
                     param_group['lr'] = lr
             cubemap.build_mips()
-
             
             render_mode = mode
             if render_mode == "fw":
@@ -232,7 +237,7 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
 
             image = render_pkg["render"]
             viewspace_point_tensor, visibility_filter, radii = render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
-            alpha, rend_normal, dist, surf_depth, normal_from_d = render_pkg["rend_alpha"], render_pkg["rend_normal"], render_pkg["rend_dist"], render_pkg["surf_depth"], render_pkg["surf_normal"]
+            alpha, rend_normal, surf_depth, normal_from_d = render_pkg["rend_alpha"], render_pkg["rend_normal"], render_pkg["surf_depth"], render_pkg["surf_normal"]
 
         # diffuse_rgb, specular_rgb, albedo, roughness, metallic = render_pkg["diffuse_rgb"], render_pkg["specular_rgb"], render_pkg["albedo"], render_pkg["roughness"], render_pkg["metallic"]
         # diffuse_light, specular_light = render_pkg["diffuse_light"], render_pkg["specular_light"]
@@ -244,14 +249,16 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
 
         # regularization
         lambda_normal = opt.lambda_normal if iteration > opt.normal_ref_start_iter and iteration < opt.normal_reg_until_iter else 0.0
-
         normal_error = (1 - (rend_normal * normal_from_d).sum(dim=0))[None]
         normal_loss = lambda_normal * (normal_error).mean()
 
-        lambda_dist = opt.lambda_dist if iteration > 3000 else 0.0
-        dist_loss = lambda_dist * (dist).mean()
+        lambda_alpha = opt.lambda_alpha if iteration > opt.normal_ref_start_iter else 0.0 #1e-3
+        alpha_loss = zero_one_loss(alpha) * lambda_alpha
 
-        total_loss = loss + dist_loss + normal_loss
+        lambda_delta_n = opt.lambda_delta_n if iteration > opt.normal_ref_start_iter else 0.0 #1e-3
+        delta_n_loss = delta_normal_loss(render_pkg["delta_n"], render_pkg["alpha"]) * lambda_delta_n
+
+        total_loss = loss + alpha_loss + normal_loss + delta_n_loss
 
         total_loss.backward()
         iter_end.record()
@@ -259,23 +266,22 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
         with torch.no_grad():
             # Progress bar
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
-            ema_dist_for_log = 0.4 * dist_loss.item() + 0.6 * ema_dist_for_log
+            ema_delta_for_log = 0.4 * delta_n_loss.item() + 0.6 * ema_delta_for_log
             ema_normal_for_log = 0.4 * normal_loss.item() + 0.6 * ema_normal_for_log
+            ema_alpha_for_log = 0.4 * alpha_loss.item() + 0.6 * ema_alpha_for_log
             # ema_dist_for_log = 0.0
             # norm_grad_fw = 0.0
             # norm_grad_df = 0.0
-            b = gaussians._opacity.grad.data.clone()
-            opacity_grad = torch.abs(b).cpu().mean()
-            c = gaussians._xyz.grad.data.clone() #[n,]
-            z_grad = torch.abs(c[:,2]).cpu().mean()
-            x_grad = torch.abs(c[:,0]).cpu().mean()
-            y_grad = torch.abs(c[:,1]).cpu().mean()
-            grad_dict = {"opacity_grad": opacity_grad, 
-                         "x_grad": x_grad,
-                         "y_grad": y_grad,
-                         "z_grad": z_grad}
-
-
+            # b = gaussians._opacity.grad.data.clone()
+            # opacity_grad = torch.abs(b).cpu().mean()
+            # c = gaussians._xyz.grad.data.clone() #[n,]
+            # z_grad = torch.abs(c[:,2]).cpu().mean()
+            # x_grad = torch.abs(c[:,0]).cpu().mean()
+            # y_grad = torch.abs(c[:,1]).cpu().mean()
+            # grad_dict = {"opacity_grad": opacity_grad, 
+            #              "x_grad": x_grad,
+            #              "y_grad": y_grad,
+            #              "z_grad": z_grad}
             # if iteration > opt.warmup_iterations and iteration % (2*opt.iter_interval) < opt.iter_interval:
             #     a = render_pkg['ng_w'].grad.data.clone() #[n,3]
             #     norm_grad_fw = torch.norm(a, dim=-1).cpu().mean()
@@ -285,15 +291,15 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
             #     a1 = rend_normal.grad.data.clone() #[3,h,w]
             #     norm_grad_df = torch.norm(a1, dim=0).cpu().mean()
             #     grad_dict["norm_grad_df"] = norm_grad_df
-            
-            
+            grad_dict = None
 
             if iteration % 10 == 0:
                 loss_dict = {
                     "Loss": f"{ema_loss_for_log:.{5}f}",
-                    "distort": f"{ema_dist_for_log:.{5}f}",
+                    "delta_n": f"{ema_delta_for_log:.{5}f}",
                     "normal": f"{ema_normal_for_log:.{5}f}",
-                    "Points": f"{len(gaussians.get_xyz)}"
+                    "Points": f"{len(gaussians.get_xyz)}",
+                    "Alpha": f"{ema_alpha_for_log:.{5}f}",
                 }
                 progress_bar.set_postfix(loss_dict)
 
@@ -303,8 +309,9 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
 
             # Log and save
             if tb_writer is not None:
-                tb_writer.add_scalar('train_loss_patches/dist_loss', ema_dist_for_log, iteration)
+                tb_writer.add_scalar('train_loss_patches/delta_n_loss', ema_delta_for_log, iteration)
                 tb_writer.add_scalar('train_loss_patches/normal_loss', ema_normal_for_log, iteration)
+                tb_writer.add_scalar('train_loss_patches/alpha_loss', ema_alpha_for_log, iteration)
             
             if iteration < (opt.warmup_iterations+1):
                 training_report(tb_writer, grad_dict, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background))

@@ -14,6 +14,10 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from math import exp
 
+import numpy as np
+import cv2
+
+
 def l1_loss(network_output, gt):
     return torch.abs((network_output - gt)).mean()
 
@@ -71,4 +75,39 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
         return ssim_map.mean()
     else:
         return ssim_map.mean(1).mean(1).mean(1)
+    
+def zero_one_loss(img):
+    zero_epsilon = 1e-3
+    val = torch.clamp(img, zero_epsilon, 1 - zero_epsilon)
+    loss = torch.mean(torch.log(val) + torch.log(1 - val))
+    return loss
+
+def delta_normal_loss(delta_normal_norm, alpha=None):
+    # delta_normal_norm: (1, H, W), alpha: (1, H, W)
+    if alpha is not None:
+        device = alpha.device
+        weight = alpha.squeeze().detach().cpu().numpy()
+        weight = (weight*255).astype(np.uint8)
+
+        weight = erode(weight, erode_size=4)
+
+        weight = torch.from_numpy(weight.astype(np.float32)/255.)
+        weight = weight[None,...]
+        weight = weight.to(device) 
+    else:
+        weight = torch.ones_like(delta_normal_norm)
+
+    w = weight.squeeze().detach()
+    l = delta_normal_norm.squeeze()
+    loss = (w * l).mean()
+
+    return loss
+
+def erode(img_in, erode_size=4):
+    img_out = np.copy(img_in)
+    kernel = np.ones((erode_size, erode_size), np.uint8)
+    img_out = cv2.erode(img_out, kernel, iterations=1)
+
+    return img_out
+
 

@@ -196,8 +196,9 @@ def training_report(tb_writer, grad_dict, iteration, Ll1, loss, l1_loss, elapsed
         tb_writer.add_scalar('train_loss_patches/total_loss', loss.item(), iteration)
         tb_writer.add_scalar('iter_time', elapsed, iteration)
         tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
-        for key, value in grad_dict.items():
-            tb_writer.add_scalar(f'grads/{key}', value, iteration)
+        if grad_dict is not None:
+            for key, value in grad_dict.items():
+                tb_writer.add_scalar(f'grads/{key}', value, iteration)
 
     # Report test and samples of training set
     if iteration in testing_iterations:
