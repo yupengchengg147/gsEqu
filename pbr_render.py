@@ -16,7 +16,7 @@ from scene import Scene
 import os
 from tqdm import tqdm
 from os import makedirs
-from gaussian_renderer import pbr_render_fw, pbr_render_df
+from gaussian_renderer import pbr_render_fw, pbr_render_df, pbr_render_mixxed
 import torchvision
 from pbr import CubemapLight, get_brdf_lut
 
@@ -165,6 +165,24 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
                 if key in render_pkg_fw.keys() and key in render_pkg_df.keys():
                     if render_pkg_fw[key] is not None and render_pkg_df[key] is not None:
                         render_pkg[key] = fw_mask[None,:, :] * render_pkg_fw[key] + (~fw_mask[None,:, :]) * render_pkg_df[key]
+        
+        elif mode == "mixxed":
+                            
+                H, W = view.image_height, view.image_width
+                c2w = torch.inverse(view.world_view_transform.T)  # [4, 4]
+                view_dirs = -(( F.normalize(canonical_rays[:, None, :], p=2, dim=-1)* c2w[None, :3, :3]).sum(dim=-1) #[HW,3]
+                            .reshape(H, W, 3)) # direct from screen to cam center
+                
+                render_pkg = pbr_render_mixxed(
+                    viewpoint_camera=view,
+                    pc=gaussians,
+                    light=cubemap,
+                    pipe=pipeline,
+                    bg_color=background,
+                    view_dirs = view_dirs,
+                    brdf_lut= brdf_lut,
+                    speed=True,
+                    )
 
         else:
             raise ValueError("Unknown render mode")
@@ -259,7 +277,6 @@ def render_sets(dataset : ModelParams, chkp_path: str, pipeline : PipelineParams
              render_set(dataset.model_path, "test", first_iter, scene.getTestCameras(), 
                         gaussians, cubemap, pipeline, background, canonical_rays, 
                         mode)
-
 
              
 if __name__ == "__main__":

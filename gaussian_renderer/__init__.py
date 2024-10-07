@@ -309,8 +309,6 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
         cov3D_precomp = cov3D_precomp
     )[0][0:1,:,:]
 
-
-    
     # assume the depth points form the 'surface' and generate psudo surface normal for regularizations.
     surf_normal = depth_to_normal(viewpoint_camera, render_depth)
     surf_normal = surf_normal.permute(2,0,1)
@@ -678,3 +676,266 @@ def pbr_render_st(viewpoint_camera, pc: GaussianModel,
             render_pkg[key] = fw_mask[None,:, :] * render_pkg_fw[key] + (~fw_mask[None,:, :]) * render_pkg_df[key]
     
     return render_pkg
+
+
+def pbr_render_mixxed(viewpoint_camera, pc: GaussianModel, 
+                  light:CubemapLight, pipe, bg_color : torch.Tensor, 
+                  view_dirs : torch.Tensor, #[H,W,3]
+                  brdf_lut: Optional[torch.Tensor] = None, 
+                  speed=False, scaling_modifier = 1.0, inference = False):
+
+    screenspace_points = torch.zeros_like(pc.get_xyz, dtype=pc.get_xyz.dtype, requires_grad=True, device="cuda") + 0
+    
+    try:
+        screenspace_points.retain_grad()
+    except:
+        pass
+
+    # Set up rasterization configuration
+    tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
+    tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
+
+    raster_settings = GaussianRasterizationSettings(
+        image_height=int(viewpoint_camera.image_height),
+        image_width=int(viewpoint_camera.image_width),
+        tanfovx=tanfovx,
+        tanfovy=tanfovy,
+        bg=bg_color,
+        scale_modifier=scaling_modifier,
+        viewmatrix=viewpoint_camera.world_view_transform,
+        projmatrix=viewpoint_camera.full_proj_transform,
+        sh_degree=0,
+        campos=viewpoint_camera.camera_center,
+        prefiltered=False,
+        debug=False,
+        # pipe.debug
+    )
+    rasterizer = GaussianRasterizer(raster_settings=raster_settings)
+
+    means3D = pc.get_xyz
+    means2D = screenspace_points
+    opacity = pc.get_opacity
+
+    numG = means3D.shape[0]
+
+    #cov3d
+    scales = None
+    rotations = None
+    cov3D_precomp = None
+    if pipe.compute_cov3D_python:
+        cov3D_precomp = pc.get_covariance(scaling_modifier)
+    else:
+        scales = pc.get_scaling
+        rotations = pc.get_rotation
+
+
+    #shading/colors_precomputed
+    view_pos = viewpoint_camera.camera_center.repeat(numG, 1) # (numG, 3)
+    wo_W = safe_normalize(view_pos - means3D) # (numG, 3) wo directs from gs to camera
+    dir_pp_normalized = - wo_W # (numG, 3) dir_pp_normalized directs from camera to gs
+
+    delta_normal_norm = None
+    normalsG_W, delta_normal = pc.get_normal(dir_pp_normalized= dir_pp_normalized, return_delta=True) # (N, 3)
+    delta_normal_norm = delta_normal.norm(dim=1, keepdim=True)
+
+    wi_W = safe_normalize(reflect(wo_W, normalsG_W)) # (numG, 3)
+
+    albedo=pc.get_albedo
+    roughness=pc.get_roughness
+    metallic=pc.get_metallic
+
+    results = pbr_shading_2dgs(light = light, 
+                              normals=normalsG_W[None, None,:,:], # ( 1, 1, numG, 3)
+                              wo= wo_W, # (numG, 3)
+                              wi=wi_W[None, None,:,:],# ( 1, 1, numG, 3)
+                              albedo=albedo,
+                              roughness=roughness,
+                              metallic=metallic,
+                              brdf_lut = brdf_lut
+                              )
+
+    # colors_precomp = results["rgb"] # [numG, 3]
+    # diffuse_color = results["diffuse"] # [numG, 3]
+    specular_color = results["specular"] # [numG, 3]
+    # diffuse_light = results["diffuse_light"] # [numG, 3]
+    specular_light = results["specular_light"] # [numG, 3]
+
+    image_specular, radii = rasterizer(
+        means3D = means3D,
+        means2D = means2D,
+        shs = None,
+        colors_precomp = specular_color,
+        opacities = opacity,
+        scales = scales,
+        rotations = rotations,
+        cov3D_precomp = cov3D_precomp
+    )
+
+    alpha = torch.ones_like(means3D) 
+    render_alpha = rasterizer(
+        means3D = means3D,
+        means2D = means2D,
+        shs = None,
+        colors_precomp = alpha,
+        opacities = opacity,
+        scales = scales,
+        rotations = rotations,
+        cov3D_precomp = cov3D_precomp
+    )[0][0:1,:,:]  # (1, H, W)
+
+    normal_normed = 0.5*normalsG_W + 0.5  # range (-1, 1) -> (0, 1)
+    render_normal = rasterizer(
+        means3D = means3D,
+        means2D = means2D,
+        shs = None,
+        colors_precomp = normal_normed,
+        opacities = opacity,
+        scales = scales,
+        rotations = rotations,
+        cov3D_precomp = cov3D_precomp
+    )[0]
+
+    try:
+        gt_mask = viewpoint_camera.gt_normal_mask.cuda()
+        # print("process forward shading with gt mask")
+    except:
+        gt_mask = None
+    
+    if gt_mask is not None:
+        mask = gt_mask
+    else:
+        if not inference:
+            mask = (render_normal != 0).all(0, keepdim=True)
+        else:
+            mask = (render_normal != 0).all(0, keepdim=True) # | (render_alpha >= 0.5).all(0, keepdim=True)
+    
+    p_hom = torch.cat([pc.get_xyz, torch.ones_like(pc.get_xyz[...,:1])], -1).unsqueeze(-1)
+    p_view = torch.matmul(viewpoint_camera.world_view_transform.transpose(0,1), p_hom)
+    p_view = p_view[...,:3,:]
+    depth = p_view.squeeze()[...,2:3]
+    depth = depth.repeat(1,3)
+    render_depth = rasterizer(
+        means3D = means3D,
+        means2D = means2D,
+        shs = None,
+        colors_precomp = depth,
+        opacities = opacity,
+        scales = scales,
+        rotations = rotations,
+        cov3D_precomp = cov3D_precomp
+    )[0][0:1,:,:]  # (1, H, W)
+
+    delta_n = rasterizer(
+        means3D = means3D,
+        means2D = means2D,
+        shs = None,
+        colors_precomp = delta_normal_norm.repeat(1,3),
+        opacities = opacity,
+        scales = scales,
+        rotations = rotations,
+        cov3D_precomp = cov3D_precomp
+    )[0][0:1,:,:]
+
+    # assume the depth points form the 'surface' and generate psudo surface normal for regularizations.
+    surf_normal = depth_to_normal(viewpoint_camera, render_depth)
+    surf_normal = surf_normal.permute(2,0,1)
+    # remember to multiply with accum_alpha since render_normal is unnormalized.
+    surf_normal = surf_normal * (render_alpha).detach()
+
+
+    ## df part for diffuse
+    pre_blend = {
+        "albedo": albedo,
+        "metallic": metallic.repeat(1, 3),
+        "roughness": roughness.repeat(1, 3)
+    }
+    deffered_input ={}
+
+    for k in pre_blend.keys():
+        if pre_blend[k] is None: continue
+        image = rasterizer(
+            means3D = means3D,
+            means2D = means2D,
+            shs = None,
+            colors_precomp = pre_blend[k],
+            opacities = opacity,
+            scales = scales,
+            rotations = rotations,
+            cov3D_precomp = cov3D_precomp)[0]
+        deffered_input[k] = image
+    
+  
+    results, extras = gsir_deferred_shading(light, 
+                                    render_normal.permute(1,2,0).contiguous(), 
+                                    view_dirs, #already normalized outside
+                                    deffered_input["albedo"].permute(1,2,0).contiguous(), 
+                                    deffered_input["roughness"][0,:,:][None,:,:].permute(1,2,0).contiguous(), 
+                                    brdf_lut,
+                                    metallic= deffered_input["metallic"][0,:,:][None,:,:].permute(1,2,0).contiguous()
+                                    )
+    
+    
+    image_diffuse = extras["diffuse_rgb"]
+
+    rendered_image = image_specular +  image_diffuse #specular from fw, diffuse from df
+
+    rendered_image = torch.where(mask, rendered_image, bg_color[:,None,None])
+    render_normal = torch.where(mask, render_normal, torch.zeros_like(render_normal))
+    surf_normal = torch.where(mask, surf_normal, torch.zeros_like(surf_normal))
+    # render_alpha = torch.where(mask, render_alpha, torch.zeros_like(render_alpha))
+    render_depth = torch.where(mask, render_depth, torch.zeros_like(render_depth))
+    delta_n = torch.where(mask, delta_n, torch.zeros_like(delta_n))
+
+    if pipe.tone:
+        rendered_image = aces_film(rendered_image)
+    else:
+        rendered_image = rendered_image.clamp(min=0.0, max=1.0)
+    if pipe.gamma:
+        rendered_image = linear_to_srgb(rendered_image.squeeze())
+
+
+    rets =  {"render": rendered_image,
+            "viewspace_points": means2D,
+            "visibility_filter" : radii > 0,
+            "radii": radii,
+    }
+
+    rets.update({
+            'rend_alpha': render_alpha,
+            'rend_normal': render_normal,
+            'surf_depth': render_depth,
+            'surf_normal': surf_normal,
+            'delta_n': delta_n
+
+    })
+
+    if speed:
+        return rets
+
+
+    light_specular = rasterizer(
+        means3D = means3D,
+        means2D = means2D,
+        shs = None,
+        colors_precomp = specular_light,
+        opacities = opacity,
+        scales = scales,
+        rotations = rotations,
+        cov3D_precomp = cov3D_precomp
+    )[0]
+    rets.update({
+        'specular_light': torch.where(mask, light_specular, bg_color[:,None,None])
+    })
+    rets["specular_rgb"] = torch.where(mask, image_specular, bg_color[:,None,None])
+
+    rets["diffuse_light"] = torch.where(mask, extras["diffuse_light"], bg_color[:,None,None])
+    rets["diffuse_rgb"] = torch.where(mask, image_diffuse, bg_color[:,None,None])
+
+    for key in deffered_input.keys():
+        if deffered_input[key] is not None:
+            # print(key)
+            deffered_input[key] = torch.where(mask, deffered_input[key], bg_color[:,None,None])
+
+    rets.update(deffered_input) # albedo, roughness, metallic
+    return rets
+

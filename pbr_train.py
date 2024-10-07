@@ -17,7 +17,7 @@ from scene import Scene, GaussianModel
 from pbr import CubemapLight, get_brdf_lut
 
 
-from gaussian_renderer import pbr_render_fw, network_gui, render, pbr_render_df, pbr_render_st
+from gaussian_renderer import pbr_render_fw, network_gui, render, pbr_render_df, pbr_render_st, pbr_render_mixxed
 
 from train import prepare_output_and_logger, training_report
 
@@ -227,7 +227,28 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
                     if key in render_pkg_fw.keys() and key in render_pkg_df.keys():
                         if render_pkg_fw[key] is not None and render_pkg_df[key] is not None:
                             render_pkg[key] = fw_mask[None,:, :] * render_pkg_fw[key] + (~fw_mask[None,:, :]) * render_pkg_df[key]
+            
+            elif render_mode == "mixxed":
+                
+               
+                
+                H, W = viewpoint_cam.image_height, viewpoint_cam.image_width
+                c2w = torch.inverse(viewpoint_cam.world_view_transform.T)  # [4, 4]
+                view_dirs = -(( F.normalize(canonical_rays[:, None, :], p=2, dim=-1)* c2w[None, :3, :3]).sum(dim=-1) #[HW,3]
+                            .reshape(H, W, 3)) # direct from screen to cam center
+                
 
+                render_pkg = pbr_render_mixxed(
+                    viewpoint_camera=viewpoint_cam,
+                    pc=gaussians,
+                    light=cubemap,
+                    pipe=pipe,
+                    bg_color=background,
+                    view_dirs = view_dirs,
+                    brdf_lut= brdf_lut,
+                    speed=True,
+                    )
+                
             else:
                 raise ValueError("Unknown render mode")
 
@@ -334,6 +355,11 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
                                 testing_iterations, scene, pbr_render_st, 
                                 (cubemap, pipe, background, view_dirs, brdf_lut, False, pipe.fw_rate)
                                 )
+            elif render_mode == "mixxed":
+                training_report(tb_writer, grad_dict, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), 
+                                testing_iterations, scene, pbr_render_mixxed, 
+                                (cubemap, pipe, background, view_dirs, brdf_lut, False))
+                   
             else:
                 raise ValueError("Unknown render mode")
             
