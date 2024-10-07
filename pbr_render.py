@@ -167,6 +167,8 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
                         render_pkg[key] = fw_mask[None,:, :] * render_pkg_fw[key] + (~fw_mask[None,:, :]) * render_pkg_df[key]
         
         elif mode == "mixxed":
+                
+                # print("Mixxed rendering")
                             
                 H, W = view.image_height, view.image_width
                 c2w = torch.inverse(view.world_view_transform.T)  # [4, 4]
@@ -181,7 +183,7 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
                     bg_color=background,
                     view_dirs = view_dirs,
                     brdf_lut= brdf_lut,
-                    speed=True,
+                    speed=False,
                     )
 
         else:

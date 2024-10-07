@@ -865,7 +865,7 @@ def pbr_render_mixxed(viewpoint_camera, pc: GaussianModel,
         deffered_input[k] = image
     
   
-    results, extras = gsir_deferred_shading(light, 
+    _, extras = gsir_deferred_shading(light, 
                                     render_normal.permute(1,2,0).contiguous(), 
                                     view_dirs, #already normalized outside
                                     deffered_input["albedo"].permute(1,2,0).contiguous(), 
