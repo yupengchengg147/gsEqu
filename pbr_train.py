@@ -417,3 +417,16 @@ if __name__ == "__main__":
 
 # python pbr_train.py -s /is/cluster/fast/pyu/data/refnerf/helmet -m /is/cluster/fast/pyu/results/test -w --eval --warmup_iterations 1 --lambda_normal 0.01  --mode stochastic --fw_rate 0.2 --gamma --tone
 # --fw_iter 1 --df_iter 1
+
+# python pbr_train.py \
+#             -s "/is/cluster/fast/pyu/data/refnerf/${model}/" \
+#             -m "${output_dir}" \
+#             -w \
+#             --eval \
+#             --warmup_iterations 1 \
+#             --lambda_normal 0.01 \
+#             --fw_rate "${fw_rate}" \
+#             --mode "stochastic" \
+#             --gamma \
+#             --tone
+# /is/cluster/fast/pyu/data/tensorir/armadillo
