@@ -4,7 +4,7 @@ from tqdm import tqdm, trange
 from PIL import Image
 import os
 import json
-from utils.image_utils import psnr as get_psnr
+from utils.image_utils import psnr as get_psn
 from utils.loss_utils import ssim as get_ssim
 from lpips import LPIPS
 from argparse import ArgumentParser
@@ -48,10 +48,10 @@ if __name__ == "__main__":
                 
                 image = Image.open(os.path.join(args.gt_dir, f"test_{idx:03}", f"rgba_{light_name}.png"))
                 im_data = np.array(image.convert("RGBA"))
-                bg = np.array([1,1,1])
+                bg = np.array([1.,1.,1.])
                 norm_data = im_data / 255.0
                 arr = norm_data[:,:,:3] * norm_data[:, :, 3:4] + bg * (1 - norm_data[:, :, 3:4])
-                gt_img = torch.from_numpy(arr).cuda().permute(2, 0, 1)
+                gt_img = torch.from_numpy(arr).cuda().permute(2, 0, 1).to(prediction.dtype)
 
                 # image = Image.fromarray(np.array(arr*255.0, dtype=np.byte), "RGB")
                 
