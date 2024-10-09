@@ -20,7 +20,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # light_name_list = ["bridge", "city", "fireplace", "forest", "night"]
-    light_name_list = ["fireplace", "snow", "night"]
+
+
+    light_name_list = ["bridge", "city", "fireplace", "forest", "night"]
 
     # Initialize a list to store results for each light_name
     results = []
@@ -45,8 +47,22 @@ if __name__ == "__main__":
             with torch.no_grad():
                 prediction = np.array(Image.open(os.path.join(args.output_dir, light_name, "test", "ours_45000", "renders",  f"{idx:05}.png")))[..., :3]  # [H, W, 3]
                 prediction = torch.from_numpy(prediction).cuda().permute(2, 0, 1) / 255.0  # [3, H, W]
-                gt_img = np.array(Image.open(os.path.join(args.gt_dir, f"test_{idx:03}", f"rgba_{light_name}.png")))[..., :3]  # [H, W, 3]
-                gt_img = torch.from_numpy(gt_img).cuda().permute(2, 0, 1) / 255.0  # [3, H, W]
+                
+                
+                
+                image = Image.open(os.path.join(args.gt_dir, f"test_{idx:03}", f"rgba_{light_name}.png"))
+                im_data = np.array(image.convert("RGBA"))
+                bg = np.array([1,1,1])
+                norm_data = im_data / 255.0
+                arr = norm_data[:,:,:3] * norm_data[:, :, 3:4] + bg * (1 - norm_data[:, :, 3:4])
+                gt_img = torch.from_numpy(arr).cuda().permute(2, 0, 1)
+
+                # image = Image.fromarray(np.array(arr*255.0, dtype=np.byte), "RGB")
+                
+                
+                
+                # gt_img = np.array(Image.open(os.path.join(args.gt_dir, f"test_{idx:03}", f"rgba_{light_name}.png")))[..., :3]  # [H, W, 3]
+                # gt_img = torch.from_numpy(gt_img).cuda().permute(2, 0, 1) / 255.0  # [3, H, W]
                 
                 # Calculate metrics
                 psnr_avg += get_psnr(gt_img, prediction).mean().double()
