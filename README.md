@@ -1,7 +1,16 @@
-branch main,gaushader都是--先pergaussian shading, 再blend.
+BRANCH DESCRIPTION:
+for now donot use normal_visible, main, and master
 
+branch stochastic: 2dgs representation + diff modes:
+stochastic with fw_rate as parameter
+iterative as fw_iter, df_iter as parameter
+also df and fw
 
-main是用的gsir的参数化方式，gaushader是用的GaussianShader的参数化方式.
+branch 3dgs_n: 3dgs + shortest axis as normal plus delta_n as residual
+with diff modes:
+stochastic with fw_rate as parameter
+iterative as fw_iter, df_iter as parameter
+also df and fw
 
-
-branch equivariant里面pbr_deffered_train/render 是先blend，再deffered shading，用的是GaussianShader的参数化方式.
+branch mixxed shading: based on 3dgs_n with additional mode mixxed,
+where df shading for diffuse_rgb and fw shading for specular_rgb.
