@@ -1,0 +1,34 @@
+{
+    "armadillo_df": [
+        {
+            "light_name": "bridge",
+            "psnr_avg": 1.6268889331817626,
+            "ssim_avg": 0.085584029071033,
+            "lpips_avg": 0.44408670827746394
+        },
+        {
+            "light_name": "city",
+            "psnr_avg": 1.0315249469876289,
+            "ssim_avg": 0.07912237979471684,
+            "lpips_avg": 0.4857093024253845
+        },
+        {
+            "light_name": "fireplace",
+            "psnr_avg": 6.957078597545624,
+            "ssim_avg": 0.08973657488822938,
+            "lpips_avg": 0.6299771565198898
+        },
+        {
+            "light_name": "forest",
+            "psnr_avg": 1.6250663083791732,
+            "ssim_avg": 0.08228991650044919,
+            "lpips_avg": 0.44498990386724474
+        },
+        {
+            "light_name": "night",
+            "psnr_avg": 4.466160310506821,
+            "ssim_avg": 0.0763601544033736,
+            "lpips_avg": 0.3159648387134075
+        }
+    ]
+}
