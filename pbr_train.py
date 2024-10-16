@@ -17,8 +17,7 @@ from scene import Scene, GaussianModel
 from pbr import CubemapLight, get_brdf_lut
 
 
-from gaussian_renderer import pbr_render_fw, network_gui, render, pbr_render_df, pbr_render_st, pbr_render_mixxed
-
+from gaussian_renderer import *
 from train import prepare_output_and_logger, training_report
 
 
@@ -248,6 +247,26 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
                     brdf_lut= brdf_lut,
                     speed=True,
                     )
+            
+            elif render_mode == "mixxed_r":
+                
+                
+                H, W = viewpoint_cam.image_height, viewpoint_cam.image_width
+                c2w = torch.inverse(viewpoint_cam.world_view_transform.T)  # [4, 4]
+                view_dirs = -(( F.normalize(canonical_rays[:, None, :], p=2, dim=-1)* c2w[None, :3, :3]).sum(dim=-1) #[HW,3]
+                            .reshape(H, W, 3)) # direct from screen to cam center
+                
+
+                render_pkg = pbr_render_mixxed_r(
+                    viewpoint_camera=viewpoint_cam,
+                    pc=gaussians,
+                    light=cubemap,
+                    pipe=pipe,
+                    bg_color=background,
+                    view_dirs = view_dirs,
+                    brdf_lut= brdf_lut,
+                    speed=True,
+                    )
                 
             else:
                 raise ValueError("Unknown render mode")
@@ -359,7 +378,11 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
                 training_report(tb_writer, grad_dict, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), 
                                 testing_iterations, scene, pbr_render_mixxed, 
                                 (cubemap, pipe, background, view_dirs, brdf_lut, False))
-                   
+            
+            elif render_mode == "mixxed_r":
+                training_report(tb_writer, grad_dict, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), 
+                                testing_iterations, scene, pbr_render_mixxed, 
+                                (cubemap, pipe, background, view_dirs, brdf_lut, False))  
             else:
                 raise ValueError("Unknown render mode")
             
@@ -407,7 +430,7 @@ if __name__ == "__main__":
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
     parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 15000, 30_000, 45000])
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 15000, 30_000, 45000])
-    parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[15000, 30_000, 45000])
+    parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[7_000, 30_000, 45000])
 
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--start_checkpoint", type=str, default = None)

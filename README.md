@@ -14,3 +14,12 @@ also df and fw
 
 branch mixxed shading: based on 3dgs_n with additional mode mixxed,
 where df shading for diffuse_rgb and fw shading for specular_rgb.
+
+branch mixxed refined:
+3dgs_n + additional mode.
+fw without mask
+df with warm-up
+for mixxed: also with warmup, and without mask
+
+git checkout mixxed_refined
+python pbr_train.py -s ... -m ... 

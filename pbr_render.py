@@ -16,7 +16,7 @@ from scene import Scene
 import os
 from tqdm import tqdm
 from os import makedirs
-from gaussian_renderer import pbr_render_fw, pbr_render_df, pbr_render_mixxed
+from gaussian_renderer import *
 import torchvision
 from pbr import CubemapLight, get_brdf_lut
 
@@ -176,6 +176,26 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
                             .reshape(H, W, 3)) # direct from screen to cam center
                 
                 render_pkg = pbr_render_mixxed(
+                    viewpoint_camera=view,
+                    pc=gaussians,
+                    light=cubemap,
+                    pipe=pipeline,
+                    bg_color=background,
+                    view_dirs = view_dirs,
+                    brdf_lut= brdf_lut,
+                    speed=False,
+                    )
+                
+        elif mode == "mixxed_r":
+                
+                # print("Mixxed rendering")
+                            
+                H, W = view.image_height, view.image_width
+                c2w = torch.inverse(view.world_view_transform.T)  # [4, 4]
+                view_dirs = -(( F.normalize(canonical_rays[:, None, :], p=2, dim=-1)* c2w[None, :3, :3]).sum(dim=-1) #[HW,3]
+                            .reshape(H, W, 3)) # direct from screen to cam center
+                
+                render_pkg = pbr_render_mixxed_r(
                     viewpoint_camera=view,
                     pc=gaussians,
                     light=cubemap,
