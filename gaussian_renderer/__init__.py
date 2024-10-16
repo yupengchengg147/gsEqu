@@ -376,7 +376,7 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
                 scales = scales,
                 rotations = rotations,
                 cov3D_precomp = cov3D_precomp)[0]
-            out_extras[k] = torch.where(mask, image, bg_color[:,None,None])
+            out_extras[k] = torch.where(torch.ones_like(image, dtype=torch.bool).to(image.device), image, bg_color[:,None,None])
     rets.update(out_extras)
     return rets
 
@@ -927,17 +927,17 @@ def pbr_render_mixxed(viewpoint_camera, pc: GaussianModel,
         cov3D_precomp = cov3D_precomp
     )[0]
     rets.update({
-        'specular_light': torch.where(torch.ones_like(light_specular).to(light_specular.device), light_specular, bg_color[:,None,None])
+        'specular_light': torch.where(torch.ones_like(light_specular, dtype=torch.bool).to(light_specular.device), light_specular, bg_color[:,None,None])
     })
-    rets["specular_rgb"] = torch.where(torch.ones_like(light_specular).to(light_specular.device), image_specular, bg_color[:,None,None])
+    rets["specular_rgb"] = torch.where(torch.ones_like(light_specular, dtype=torch.bool).to(light_specular.device), image_specular, bg_color[:,None,None])
 
-    rets["diffuse_light"] = torch.where(torch.ones_like(light_specular).to(light_specular.device), extras["diffuse_light"], bg_color[:,None,None])
-    rets["diffuse_rgb"] = torch.where(torch.ones_like(light_specular).to(light_specular.device), image_diffuse, bg_color[:,None,None])
+    rets["diffuse_light"] = torch.where(torch.ones_like(light_specular, dtype=torch.bool).to(light_specular.device), extras["diffuse_light"], bg_color[:,None,None])
+    rets["diffuse_rgb"] = torch.where(torch.ones_like(light_specular, dtype=torch.bool).to(light_specular.device), image_diffuse, bg_color[:,None,None])
 
     for key in deffered_input.keys():
         if deffered_input[key] is not None:
             # print(key)
-            deffered_input[key] = torch.where(torch.ones_like(light_specular).to(light_specular.device), deffered_input[key], bg_color[:,None,None])
+            deffered_input[key] = torch.where(torch.ones_like(light_specular, dtype=torch.bool).to(light_specular.device), deffered_input[key], bg_color[:,None,None])
 
     rets.update(deffered_input) # albedo, roughness, metallic
     return rets
@@ -1195,18 +1195,18 @@ def pbr_render_mixxed_r(viewpoint_camera, pc: GaussianModel,
         cov3D_precomp = cov3D_precomp
     )[0]
     rets.update({
-        'diffuse_light': torch.where(torch.ones_like(light_diffuse).to(light_diffuse.device), light_diffuse, bg_color[:,None,None])
+        'diffuse_light': torch.where(torch.ones_like(light_diffuse, dtype=torch.bool).to(light_diffuse.device), light_diffuse, bg_color[:,None,None])
     })
-    rets["specular_rgb"] = torch.where(torch.ones_like(light_diffuse).to(light_diffuse.device), image_specular, bg_color[:,None,None])
+    rets["specular_rgb"] = torch.where(torch.ones_like(light_diffuse, dtype=torch.bool).to(light_diffuse.device), image_specular, bg_color[:,None,None])
 
-    rets["specular_light"] = torch.where(torch.ones_like(light_diffuse).to(light_diffuse.device), extras["specular_light"], bg_color[:,None,None])
-    rets["diffuse_rgb"] = torch.where(torch.ones_like(light_diffuse).to(light_diffuse.device), image_diffuse, bg_color[:,None,None])
+    rets["specular_light"] = torch.where(torch.ones_like(light_diffuse, dtype=torch.bool).to(light_diffuse.device), extras["specular_light"], bg_color[:,None,None])
+    rets["diffuse_rgb"] = torch.where(torch.ones_like(light_diffuse, dtype=torch.bool).to(light_diffuse.device), image_diffuse, bg_color[:,None,None])
 
 
     for key in deffered_input.keys():
         if deffered_input[key] is not None:
             # print(key)
-            deffered_input[key] = torch.where(torch.ones_like(light_diffuse).to(light_diffuse.device), deffered_input[key], bg_color[:,None,None])
+            deffered_input[key] = torch.where(torch.ones_like(light_diffuse, dtype=torch.bool).to(light_diffuse.device), deffered_input[key], bg_color[:,None,None])
 
     rets.update(deffered_input) # albedo, roughness, metallic
     return rets
