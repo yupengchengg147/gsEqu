@@ -49,9 +49,10 @@ def evaluate(model_paths):
             per_view_dict_polytopeonly[scene_dir] = {}
 
             test_dir = Path(scene_dir) / "test"
+            # /is/cluster/fast/pyu/results_refined/toaster/fw_alpha_0.01/test/ours_45000
 
             # for method in os.listdir(test_dir):
-            for method in ["ours_30000"]:
+            for method in ["ours_45000"]:
                 print("Method:", method)
 
                 full_dict[scene_dir][method] = {}
