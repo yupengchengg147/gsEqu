@@ -39,6 +39,15 @@ def evaluate(model_paths):
     per_view_dict = {}
     full_dict_polytopeonly = {}
     per_view_dict_polytopeonly = {}
+    
+    model_paths = ["/is/cluster/fast/pyu/results_refined/helmet/df_alpha_0.01", 
+                   "/is/cluster/fast/pyu/results_refined/helmet/fw_alpha_0.01", 
+                   "/is/cluster/fast/pyu/results_refined/helmet/mixxed_alpha_0.01", 
+                   "/is/cluster/fast/pyu/results_refined/helmet/mixxed_reversed_alpha_0.01", 
+                   "/is/cluster/fast/pyu/results_refined/toaster/df_alpha_0.01", 
+                   "/is/cluster/fast/pyu/results_refined/toaster/fw_alpha_0.01",
+                   "/is/cluster/fast/pyu/results_refined/toaster/mixxed_alpha_0.01",
+                   "/is/cluster/fast/pyu/results_refined/toaster/mixxed_reversed_alpha_0.01"]
 
     for scene_dir in model_paths:
         try:
@@ -51,7 +60,7 @@ def evaluate(model_paths):
             test_dir = Path(scene_dir) / "test"
 
             # for method in os.listdir(test_dir):
-            for method in ["ours_30000"]:
+            for method in ["ours_45000"]:
                 print("Method:", method)
 
                 full_dict[scene_dir][method] = {}
