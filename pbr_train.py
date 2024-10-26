@@ -114,8 +114,8 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
             gaussians.set_requires_grad("roughness", True)
             gaussians.set_requires_grad("metallic", True)
 
-            gaussians.set_requires_grad("normal_0", True)
-            gaussians.set_requires_grad("normal_1", True)
+            # gaussians.set_requires_grad("normal_0", True)
+            # gaussians.set_requires_grad("normal_1", True)
             continue
 
         else:
