@@ -98,7 +98,7 @@ class OptimizationParams(ParamGroup):
         self.normal_lr = 0.0002
 
         self.lambda_dssim = 0.2
-        # self.lambda_dist = 1000.0
+        self.lambda_dist = 1000.0
 
         self.lambda_normal = 0.05
         self.lambda_alpha = 1e-3
@@ -121,6 +121,7 @@ class OptimizationParams(ParamGroup):
         self.fix_brdf_lr = 0
         self.brdf_mlp_lr_init = 1.6e-2
         self.brdf_mlp_lr_final = 1.6e-3 
+        
         self.brdf_mlp_lr_delay_mult = 0.01
         self.brdf_mlp_lr_max_steps = 45_000
         

@@ -160,24 +160,12 @@ class GaussianModel:
 
 
     @property
-    def get_minimum_axis(self):
-        return get_minimum_axis(self.get_scaling, self.get_rotation)
-
-    def get_normal(self, dir_pp_normalized=None, return_delta=False):
-        normal_axis = self.get_minimum_axis
-        normal_axis = normal_axis
-        normal_axis, positive = flip_align_view(normal_axis, dir_pp_normalized) # here computing cos(n, -view_dir)!
-        delta_normal1 = self._normal_0  # (N, 3) 
-        delta_normal2 = self._normal_1 # (N, 3) 
-        delta_normal = torch.stack([delta_normal1, delta_normal2], dim=-1) # (N, 3, 2)
-        idx = torch.where(positive, 0, 1).long()[:,None,:].repeat(1, 3, 1) # (N, 3, 1)
-        delta_normal = torch.gather(delta_normal, index=idx, dim=-1).squeeze(-1) # (N, 3)
-        normal = delta_normal + normal_axis 
-        normal = normal/normal.norm(dim=1, keepdim=True) # (N, 3)
-        if return_delta:
-            return normal, delta_normal
-        else:
-            return normal
+    def get_normals(self):
+       
+        normal_b = self.covariance_activation(self.get_xyz, self.get_scaling, 1, self._rotation)[:,2,:3] #(N,3) the third row
+        norm_b = torch.norm(normal_b, dim=1, keepdim=True)
+        assert torch.allclose(norm_b, torch.ones_like(norm_b), atol=1e-2, rtol=1e-2), "Normal is not normalized"
+        return normal_b
 
 
     def oneupSHdegree(self):

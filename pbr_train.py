@@ -67,7 +67,7 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
     viewpoint_stack = None
     ema_loss_for_log = 0.0
     ema_alpha_for_log = 0.0
-    ema_delta_for_log = 0.0
+    ema_dist_for_log = 0.0
     ema_normal_for_log = 0.0
     
     # in warmup iterations, set envmap gradient false, set pbr related para gradient false
@@ -121,7 +121,8 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
         else:
             for param_group in light_optimizer.param_groups:
                 if param_group["name"] == "cubemap":
-                    lr = brdf_mlp_scheduler_args(iteration - opt.warmup_iterations)
+                    # lr = brdf_mlp_scheduler_args(iteration - opt.warmup_iterations)
+                    lr = 0.05
                     param_group['lr'] = lr
             cubemap.build_mips()
             
@@ -228,9 +229,7 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
                             render_pkg[key] = fw_mask[None,:, :] * render_pkg_fw[key] + (~fw_mask[None,:, :]) * render_pkg_df[key]
             
             elif render_mode == "mixxed":
-                
-               
-                
+
                 H, W = viewpoint_cam.image_height, viewpoint_cam.image_width
                 c2w = torch.inverse(viewpoint_cam.world_view_transform.T)  # [4, 4]
                 view_dirs = -(( F.normalize(canonical_rays[:, None, :], p=2, dim=-1)* c2w[None, :3, :3]).sum(dim=-1) #[HW,3]
@@ -275,7 +274,7 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
             image = render_pkg["render"]
             viewspace_point_tensor, visibility_filter, radii = render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
             alpha, rend_normal, surf_depth, normal_from_d = render_pkg["rend_alpha"], render_pkg["rend_normal"], render_pkg["surf_depth"], render_pkg["surf_normal"]
-
+            dist = render_pkg["rend_dist"]
         # diffuse_rgb, specular_rgb, albedo, roughness, metallic = render_pkg["diffuse_rgb"], render_pkg["specular_rgb"], render_pkg["albedo"], render_pkg["roughness"], render_pkg["metallic"]
         # diffuse_light, specular_light = render_pkg["diffuse_light"], render_pkg["specular_light"]
 
@@ -293,14 +292,14 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
             lambda_alpha = opt.lambda_alpha if iteration > opt.normal_ref_start_iter else 0.0 #1e-3
             alpha_loss = zero_one_loss(alpha) * lambda_alpha
 
-            lambda_delta_n = opt.lambda_delta_n if iteration > opt.normal_ref_start_iter else 0.0 #1e-3
-            delta_n_loss = delta_normal_loss(render_pkg["delta_n"], alpha) * lambda_delta_n
+            lambda_dist = opt.lambda_dist if iteration > opt.normal_ref_start_iter else 0.0
+            dist_loss = lambda_dist * (dist).mean()
 
-            total_loss = loss + alpha_loss + normal_loss + delta_n_loss
+            total_loss = loss + alpha_loss + normal_loss + dist_loss
         
         else:
             total_loss = loss
-            delta_n_loss = torch.tensor(0.0, device="cuda")
+            dist_loss = torch.tensor(0.0, device="cuda")
             normal_loss = torch.tensor(0.0, device="cuda") 
             alpha_loss = torch.tensor(0.0, device="cuda")
 
@@ -310,7 +309,7 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
         with torch.no_grad():
             # Progress bar
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
-            ema_delta_for_log = 0.4 * delta_n_loss.item() + 0.6 * ema_delta_for_log
+            ema_dist_for_log = 0.4 * dist_loss.item() + 0.6 * ema_dist_for_log
             ema_normal_for_log = 0.4 * normal_loss.item() + 0.6 * ema_normal_for_log
             ema_alpha_for_log = 0.4 * alpha_loss.item() + 0.6 * ema_alpha_for_log
             # ema_dist_for_log = 0.0
@@ -340,7 +339,7 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
             if iteration % 10 == 0:
                 loss_dict = {
                     "Loss": f"{ema_loss_for_log:.{5}f}",
-                    "delta_n": f"{ema_delta_for_log:.{5}f}",
+                    "distortion": f"{ema_dist_for_log:.{5}f}",
                     "normal": f"{ema_normal_for_log:.{5}f}",
                     "Points": f"{len(gaussians.get_xyz)}",
                     "Alpha": f"{ema_alpha_for_log:.{5}f}",
@@ -353,7 +352,7 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
 
             # Log and save
             if tb_writer is not None:
-                tb_writer.add_scalar('train_loss_patches/delta_n_loss', ema_delta_for_log, iteration)
+                tb_writer.add_scalar('train_loss_patches/dist_loss', ema_dist_for_log, iteration)
                 tb_writer.add_scalar('train_loss_patches/normal_loss', ema_normal_for_log, iteration)
                 tb_writer.add_scalar('train_loss_patches/alpha_loss', ema_alpha_for_log, iteration)
             
@@ -390,7 +389,6 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
 
-
             # Densification
             if iteration < opt.densify_until_iter:
                 gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
@@ -416,7 +414,6 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), cubemap.state_dict(),light_optimizer.state_dict(),iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
         
-
 
 
 if __name__ == "__main__":

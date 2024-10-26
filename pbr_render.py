@@ -26,7 +26,6 @@ from arguments import ModelParams, PipelineParams, get_combined_args
 from gaussian_renderer import GaussianModel
 from utils.image_utils import apply_depth_colormap, turbo_cmap
 
-import numpy as np
 
 
 def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline, background, canonical_rays, mode):
@@ -263,8 +262,6 @@ def render_set(model_path, name, iteration, views, gaussians, cubemap,  pipeline
             torchvision.utils.save_image(pbr_image_df, os.path.join(pbr_path, f"{idx:05d}_df.png"))
 
         
-
-
 
 
 

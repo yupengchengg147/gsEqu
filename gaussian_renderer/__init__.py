@@ -15,8 +15,8 @@ import torch
 import torch.nn.functional as F
 
 import math
-# from diff_surfel_rasterization import GaussianRasterizationSettings, GaussianRasterizer
-from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
+from diff_surfel_rasterization import GaussianRasterizationSettings, GaussianRasterizer
+# from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
 
 from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
@@ -101,13 +101,24 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     rotations = None
     cov3D_precomp = None
     if pipe.compute_cov3D_python:
-        cov3D_precomp = pc.get_covariance(scaling_modifier)
+        # currently don't support normal consistency loss if use precomputed covariance
+        splat2world = pc.get_covariance(scaling_modifier)
+        W, H = viewpoint_camera.image_width, viewpoint_camera.image_height
+        near, far = viewpoint_camera.znear, viewpoint_camera.zfar
+        ndc2pix = torch.tensor([
+            [W / 2, 0, 0, (W-1) / 2],
+            [0, H / 2, 0, (H-1) / 2],
+            [0, 0, far-near, near],
+            [0, 0, 0, 1]]).float().cuda().T
+        world2pix =  viewpoint_camera.full_proj_transform @ ndc2pix
+        cov3D_precomp = (splat2world[:, [0,1,3]] @ world2pix[:,[0,1,3]]).permute(0,2,1).reshape(-1, 9) # column major
     else:
         scales = pc.get_scaling
         rotations = pc.get_rotation
-
+    
     # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
     # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
+    pipe.convert_SHs_python = False
     shs = None
     colors_precomp = None
     if override_color is None:
@@ -123,7 +134,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         colors_precomp = override_color
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
-    rendered_image, radii = rasterizer(
+    rendered_image, radii, allmap = rasterizer(
         means3D = means3D,
         means2D = means2D,
         shs = shs,
@@ -131,14 +142,58 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         opacities = opacity,
         scales = scales,
         rotations = rotations,
-        cov3D_precomp = cov3D_precomp)
+        cov3D_precomp = cov3D_precomp
+    )
 
-    # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
-    # They will be excluded from value updates used in the splitting criteria.
-    return {"render": rendered_image,
-            "viewspace_points": screenspace_points,
+    rets =  {"render": rendered_image,
+            "viewspace_points": means2D,
             "visibility_filter" : radii > 0,
-            "radii": radii}
+            "radii": radii,
+    }
+
+    # additional regularizations
+    render_alpha = allmap[1:2]
+
+    # get normal map
+    # transform normal from view space to world space
+    render_normal = allmap[2:5]
+    render_normal = (render_normal.permute(1,2,0) @ (viewpoint_camera.world_view_transform[:3,:3].T)).permute(2,0,1)
+    
+    # get median depth map
+    render_depth_median = allmap[5:6]
+    render_depth_median = torch.nan_to_num(render_depth_median, 0, 0)
+
+    # get expected depth map
+    render_depth_expected = allmap[0:1]
+    render_depth_expected = (render_depth_expected / render_alpha)
+    render_depth_expected = torch.nan_to_num(render_depth_expected, 0, 0)
+    
+    # get depth distortion map
+    render_dist = allmap[6:7]
+
+    # psedo surface attributes
+    # surf depth is either median or expected by setting depth_ratio to 1 or 0
+    # for bounded scene, use median depth, i.e., depth_ratio = 1; 
+    # for unbounded scene, use expected depth, i.e., depth_ration = 0, to reduce disk anliasing.
+    surf_depth = render_depth_expected * (1-pipe.depth_ratio) + (pipe.depth_ratio) * render_depth_median
+    
+    # assume the depth points form the 'surface' and generate psudo surface normal for regularizations.
+    surf_normal = depth_to_normal(viewpoint_camera, surf_depth)
+    surf_normal = surf_normal.permute(2,0,1)
+    # remember to multiply with accum_alpha since render_normal is unnormalized.
+    surf_normal = surf_normal * (render_alpha).detach()
+
+    # render_normal.retain_grad()
+
+    rets.update({
+            'rend_alpha': render_alpha,
+            'rend_normal': render_normal,
+            'rend_dist': render_dist,
+            'surf_depth': surf_depth,
+            'surf_normal': surf_normal,
+    })
+
+    return rets
 
 
 def pbr_render_fw(viewpoint_camera, pc: GaussianModel, 
@@ -190,32 +245,38 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
     rotations = None
     cov3D_precomp = None
     if pipe.compute_cov3D_python:
-        cov3D_precomp = pc.get_covariance(scaling_modifier)
+        # currently don't support normal consistency loss if use precomputed covariance
+        splat2world = pc.get_covariance(scaling_modifier)
+        W, H = viewpoint_camera.image_width, viewpoint_camera.image_height
+        near, far = viewpoint_camera.znear, viewpoint_camera.zfar
+        ndc2pix = torch.tensor([
+            [W / 2, 0, 0, (W-1) / 2],
+            [0, H / 2, 0, (H-1) / 2],
+            [0, 0, far-near, near],
+            [0, 0, 0, 1]]).float().cuda().T
+        world2pix =  viewpoint_camera.full_proj_transform @ ndc2pix
+        cov3D_precomp = (splat2world[:, [0,1,3]] @ world2pix[:,[0,1,3]]).permute(0,2,1).reshape(-1, 9) # column major
     else:
         scales = pc.get_scaling
         rotations = pc.get_rotation
 
-
-    #shading/colors_precomputed
+    # precompute color for each local surfel
+    # for now for simplity, just use (cam_center - gs_3d_center).normalized as wo, it should be (intersection_point - gs_3d_center).normalized
+    # to do the latter, should change cuda.
+    #prepare all input for pbr: material, wi, wo, normals, light
     view_pos = viewpoint_camera.camera_center.repeat(numG, 1) # (numG, 3)
     wo_W = safe_normalize(view_pos - means3D) # (numG, 3) wo directs from gs to camera
-    dir_pp_normalized = - wo_W # (numG, 3) dir_pp_normalized directs from camera to gs
-
-    if not speed:
-        normal_axis = pc.get_minimum_axis
-        normal_axis, _ = flip_align_view(normal_axis, dir_pp_normalized)
     
-    delta_normal_norm = None
-    normalsG_W, delta_normal = pc.get_normal(dir_pp_normalized= dir_pp_normalized, return_delta=True) # (N, 3)
-    delta_normal_norm = delta_normal.norm(dim=1, keepdim=True)
+    normalsG_W = pc.get_normals # (numG, 3)
+    cos = dot(normalsG_W, wo_W) # (numG, 1)
+    mul = torch.where(cos > 0, 1., -1.) # (numG, 1)
+    normalsG_W = normalsG_W * mul # (numG, 3)
 
     wi_W = safe_normalize(reflect(wo_W, normalsG_W)) # (numG, 3)
 
     albedo=pc.get_albedo
     roughness=pc.get_roughness
     metallic=pc.get_metallic
-
-
 
     results = pbr_shading_2dgs(light = light, 
                               normals=normalsG_W[None, None,:,:], # ( 1, 1, numG, 3)
@@ -233,7 +294,7 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
     diffuse_light = results["diffuse_light"] # [numG, 3]
     specular_light = results["specular_light"] # [numG, 3]
 
-    rendered_image, radii = rasterizer(
+    rendered_image, radii, allmap = rasterizer(
         means3D = means3D,
         means2D = means2D,
         shs = None,
@@ -244,29 +305,13 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
         cov3D_precomp = cov3D_precomp
     )
 
-    alpha = torch.ones_like(means3D) 
-    render_alpha = rasterizer(
-        means3D = means3D,
-        means2D = means2D,
-        shs = None,
-        colors_precomp = alpha,
-        opacities = opacity,
-        scales = scales,
-        rotations = rotations,
-        cov3D_precomp = cov3D_precomp
-    )[0][0:1,:,:]  # (1, H, W)
+    # additional regularizations
+    render_alpha = allmap[1:2]
 
-    normal_normed = 0.5*normalsG_W + 0.5  # range (-1, 1) -> (0, 1)
-    render_normal = rasterizer(
-        means3D = means3D,
-        means2D = means2D,
-        shs = None,
-        colors_precomp = normal_normed,
-        opacities = opacity,
-        scales = scales,
-        rotations = rotations,
-        cov3D_precomp = cov3D_precomp
-    )[0]
+    # get normal map
+    # transform normal from view space to world space
+    render_normal = allmap[2:5]
+    render_normal = (render_normal.permute(1,2,0) @ (viewpoint_camera.world_view_transform[:3,:3].T)).permute(2,0,1)
 
     try:
         gt_mask = viewpoint_camera.gt_normal_mask.cuda()
@@ -282,40 +327,32 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
         else:
             mask = (render_normal != 0).all(0, keepdim=True) # | (render_alpha >= 0.5).all(0, keepdim=True)
     
-    p_hom = torch.cat([pc.get_xyz, torch.ones_like(pc.get_xyz[...,:1])], -1).unsqueeze(-1)
-    p_view = torch.matmul(viewpoint_camera.world_view_transform.transpose(0,1), p_hom)
-    p_view = p_view[...,:3,:]
-    depth = p_view.squeeze()[...,2:3]
-    depth = depth.repeat(1,3)
-    render_depth = rasterizer(
-        means3D = means3D,
-        means2D = means2D,
-        shs = None,
-        colors_precomp = depth,
-        opacities = opacity,
-        scales = scales,
-        rotations = rotations,
-        cov3D_precomp = cov3D_precomp
-    )[0][0:1,:,:]  # (1, H, W)
 
-    delta_n = rasterizer(
-        means3D = means3D,
-        means2D = means2D,
-        shs = None,
-        colors_precomp = delta_normal_norm.repeat(1,3),
-        opacities = opacity,
-        scales = scales,
-        rotations = rotations,
-        cov3D_precomp = cov3D_precomp
-    )[0][0:1,:,:]
+    # get median depth map
+    render_depth_median = allmap[5:6]
+    render_depth_median = torch.nan_to_num(render_depth_median, 0, 0)
 
+    # get expected depth map
+    render_depth_expected = allmap[0:1]
+    render_depth_expected = (render_depth_expected / render_alpha)
+    render_depth_expected = torch.nan_to_num(render_depth_expected, 0, 0)
+    
+    # get depth distortion map
+    render_dist = allmap[6:7]
+
+    # psedo surface attributes
+    # surf depth is either median or expected by setting depth_ratio to 1 or 0
+    # for bounded scene, use median depth, i.e., depth_ratio = 1; 
+    # for unbounded scene, use expected depth, i.e., depth_ration = 0, to reduce disk anliasing.
+    surf_depth = render_depth_expected * (1-pipe.depth_ratio) + (pipe.depth_ratio) * render_depth_median
+    
     # assume the depth points form the 'surface' and generate psudo surface normal for regularizations.
-    surf_normal = depth_to_normal(viewpoint_camera, render_depth)
+    surf_normal = depth_to_normal(viewpoint_camera, surf_depth)
     surf_normal = surf_normal.permute(2,0,1)
     # remember to multiply with accum_alpha since render_normal is unnormalized.
     surf_normal = surf_normal * (render_alpha).detach()
 
-    
+
     # rendered_image = torch.where(mask, rendered_image, bg_color[:,None,None])
     # render_normal = torch.where(mask, render_normal, torch.zeros_like(render_normal))
     # surf_normal = torch.where(mask, surf_normal, torch.zeros_like(surf_normal))
@@ -343,9 +380,9 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
     rets.update({
             'rend_alpha': render_alpha,
             'rend_normal': render_normal,
-            'surf_depth': render_depth,
+            'surf_depth': surf_depth,
             'surf_normal': surf_normal,
-            'delta_n': delta_n
+            'rend_dist': render_dist
 
     })
     
@@ -360,7 +397,6 @@ def pbr_render_fw(viewpoint_camera, pc: GaussianModel,
         "albedo": albedo,
         "roughness": roughness.repeat(1, 3),
         "metallic": metallic.repeat(1, 3)
-        # if w_metallic else None,
     }
 
     out_extras = {}
@@ -432,7 +468,17 @@ def pbr_render_df(viewpoint_camera,
     rotations = None
     cov3D_precomp = None
     if pipe.compute_cov3D_python:
-        cov3D_precomp = pc.get_covariance(scaling_modifier)
+        # currently don't support normal consistency loss if use precomputed covariance
+        splat2world = pc.get_covariance(scaling_modifier)
+        W, H = viewpoint_camera.image_width, viewpoint_camera.image_height
+        near, far = viewpoint_camera.znear, viewpoint_camera.zfar
+        ndc2pix = torch.tensor([
+            [W / 2, 0, 0, (W-1) / 2],
+            [0, H / 2, 0, (H-1) / 2],
+            [0, 0, far-near, near],
+            [0, 0, 0, 1]]).float().cuda().T
+        world2pix =  viewpoint_camera.full_proj_transform @ ndc2pix
+        cov3D_precomp = (splat2world[:, [0,1,3]] @ world2pix[:,[0,1,3]]).permute(0,2,1).reshape(-1, 9) # column major
     else:
         scales = pc.get_scaling
         rotations = pc.get_rotation
@@ -441,7 +487,7 @@ def pbr_render_df(viewpoint_camera,
     roughness=pc.get_roughness
     metallic= pc.get_metallic
 
-    rendered_image, radii = rasterizer(
+    rendered_image, radii, allmap = rasterizer(
         means3D = means3D,
         means2D = means2D,
         shs = None,
@@ -455,92 +501,53 @@ def pbr_render_df(viewpoint_camera,
     deffered_input ={}
     deffered_input["albedo"] = rendered_image
 
-    # get_normal
-    numG = means3D.shape[0]
-    view_pos = viewpoint_camera.camera_center.repeat(numG, 1) # (numG, 3)
-    wo_W = safe_normalize(view_pos - means3D) # (numG, 3) wo directs from gs to camera
-    dir_pp_normalized = - wo_W # (numG, 3) dir_pp_normalized directs from camera to gs
-
-    if not speed:
-        normal_axis = pc.get_minimum_axis
-        normal_axis, _ = flip_align_view(normal_axis, dir_pp_normalized)
+    render_alpha = allmap[1:2]
+    # get normal map
+    # transform normal from view space to world space
+    render_normal = allmap[2:5]
+    render_normal = (render_normal.permute(1,2,0) @ (viewpoint_camera.world_view_transform[:3,:3].T)).permute(2,0,1)
     
-    delta_normal_norm = None
-    normalsG_W, delta_normal = pc.get_normal(dir_pp_normalized= dir_pp_normalized, return_delta=True) # (N, 3)
-    delta_normal_norm = delta_normal.norm(dim=1, keepdim=True)
+    # get median depth map
+    render_depth_median = allmap[5:6]
+    render_depth_median = torch.nan_to_num(render_depth_median, 0, 0)
 
-    alpha = torch.ones_like(means3D) 
-    render_alpha = rasterizer(
-        means3D = means3D,
-        means2D = means2D,
-        shs = None,
-        colors_precomp = alpha,
-        opacities = opacity,
-        scales = scales,
-        rotations = rotations,
-        cov3D_precomp = cov3D_precomp
-    )[0][0:1,:,:]  # (1, H, W)
 
-    normal_normed = 0.5*normalsG_W + 0.5  # range (-1, 1) -> (0, 1)
-    render_normal = rasterizer(
-        means3D = means3D,
-        means2D = means2D,
-        shs = None,
-        colors_precomp = normal_normed,
-        opacities = opacity,
-        scales = scales,
-        rotations = rotations,
-        cov3D_precomp = cov3D_precomp
-    )[0]
+    try:
+        gt_mask = viewpoint_camera.gt_normal_mask.cuda()
+        # print("process deferred shading with gt mask")
+    except:
+        gt_mask = None
+    if gt_mask is not None:
+        mask = gt_mask
+    else:
+        if not inference:
+            mask = (render_normal != 0).all(0, keepdim=True)
+        else:
+            mask = (render_normal != 0).all(0, keepdim=True) | (render_alpha >= 0.5).all(0, keepdim=True)
 
-    # depth, depth_derived normal and delta_n
-    p_hom = torch.cat([pc.get_xyz, torch.ones_like(pc.get_xyz[...,:1])], -1).unsqueeze(-1)
-    p_view = torch.matmul(viewpoint_camera.world_view_transform.transpose(0,1), p_hom)
-    p_view = p_view[...,:3,:]
-    depth = p_view.squeeze()[...,2:3]
-    depth = depth.repeat(1,3)
-    render_depth = rasterizer(
-        means3D = means3D,
-        means2D = means2D,
-        shs = None,
-        colors_precomp = depth,
-        opacities = opacity,
-        scales = scales,
-        rotations = rotations,
-        cov3D_precomp = cov3D_precomp
-    )[0][0:1,:,:]  # (1, H, W)
+    # get expected depth map
+    render_depth_expected = allmap[0:1]
+    render_depth_expected = (render_depth_expected / render_alpha)
+    render_depth_expected = torch.nan_to_num(render_depth_expected, 0, 0)
+    
+    # get depth distortion map
+    render_dist = allmap[6:7]
 
-    delta_n = rasterizer(
-        means3D = means3D,
-        means2D = means2D,
-        shs = None,
-        colors_precomp = delta_normal_norm.repeat(1,3),
-        opacities = opacity,
-        scales = scales,
-        rotations = rotations,
-        cov3D_precomp = cov3D_precomp
-    )[0][0:1,:,:]
-
+    # psedo surface attributes
+    # surf depth is either median or expected by setting depth_ratio to 1 or 0
+    # for bounded scene, use median depth, i.e., depth_ratio = 1; 
+    # for unbounded scene, use expected depth, i.e., depth_ration = 0, to reduce disk anliasing.
+    surf_depth = render_depth_expected * (1-pipe.depth_ratio) + (pipe.depth_ratio) * render_depth_median
+    
     # assume the depth points form the 'surface' and generate psudo surface normal for regularizations.
-    surf_normal = depth_to_normal(viewpoint_camera, render_depth)
+    surf_normal = depth_to_normal(viewpoint_camera, surf_depth)
     surf_normal = surf_normal.permute(2,0,1)
     # remember to multiply with accum_alpha since render_normal is unnormalized.
     surf_normal = surf_normal * (render_alpha).detach()
 
-
-    
-
-    # render_normal = torch.where(mask, render_normal, torch.zeros_like(render_normal))
-    # surf_normal = torch.where(mask, surf_normal, torch.zeros_like(surf_normal))
-    # render_alpha = torch.where(mask, render_alpha, torch.zeros_like(render_alpha))
-    # render_depth = torch.where(mask, render_depth, torch.zeros_like(render_depth))
-    # delta_n = torch.where(mask, delta_n, torch.zeros_like(delta_n))
-
-
     pre_blend = {
         "metallic": metallic.repeat(1, 3),
         "roughness": roughness.repeat(1, 3),
-        # "normals_blended": normalsG_W,
     }
 
     
@@ -557,7 +564,8 @@ def pbr_render_df(viewpoint_camera,
             rotations = rotations,
             cov3D_precomp = cov3D_precomp)[0]
         deffered_input[k] = image
-    
+
+
   
     results, extras = gsir_deferred_shading(light, 
                                     render_normal.permute(1,2,0).contiguous(), 
@@ -589,7 +597,6 @@ def pbr_render_df(viewpoint_camera,
     surf_normal = torch.where(mask, surf_normal, torch.zeros_like(surf_normal))
     # render_alpha = torch.where(mask, render_alpha, torch.zeros_like(render_alpha))
     render_depth = torch.where(mask, render_depth, torch.zeros_like(render_depth))
-    delta_n = torch.where(mask, delta_n, torch.zeros_like(delta_n))
 
     if pipe.tone:
         rendered_image = aces_film(rendered_image)
@@ -610,7 +617,7 @@ def pbr_render_df(viewpoint_camera,
             'rend_normal': render_normal,
             'surf_depth': render_depth,
             'surf_normal': surf_normal,
-            'delta_n': delta_n
+            'rend_dist': render_dist
 
     })
 
@@ -726,20 +733,28 @@ def pbr_render_mixxed(viewpoint_camera, pc: GaussianModel,
     rotations = None
     cov3D_precomp = None
     if pipe.compute_cov3D_python:
-        cov3D_precomp = pc.get_covariance(scaling_modifier)
+        # currently don't support normal consistency loss if use precomputed covariance
+        splat2world = pc.get_covariance(scaling_modifier)
+        W, H = viewpoint_camera.image_width, viewpoint_camera.image_height
+        near, far = viewpoint_camera.znear, viewpoint_camera.zfar
+        ndc2pix = torch.tensor([
+            [W / 2, 0, 0, (W-1) / 2],
+            [0, H / 2, 0, (H-1) / 2],
+            [0, 0, far-near, near],
+            [0, 0, 0, 1]]).float().cuda().T
+        world2pix =  viewpoint_camera.full_proj_transform @ ndc2pix
+        cov3D_precomp = (splat2world[:, [0,1,3]] @ world2pix[:,[0,1,3]]).permute(0,2,1).reshape(-1, 9) # column major
     else:
         scales = pc.get_scaling
         rotations = pc.get_rotation
 
-
-    #shading/colors_precomputed
     view_pos = viewpoint_camera.camera_center.repeat(numG, 1) # (numG, 3)
     wo_W = safe_normalize(view_pos - means3D) # (numG, 3) wo directs from gs to camera
-    dir_pp_normalized = - wo_W # (numG, 3) dir_pp_normalized directs from camera to gs
-
-    delta_normal_norm = None
-    normalsG_W, delta_normal = pc.get_normal(dir_pp_normalized= dir_pp_normalized, return_delta=True) # (N, 3)
-    delta_normal_norm = delta_normal.norm(dim=1, keepdim=True)
+    
+    normalsG_W = pc.get_normals # (numG, 3)
+    cos = dot(normalsG_W, wo_W) # (numG, 1)
+    mul = torch.where(cos > 0, 1., -1.) # (numG, 1)
+    normalsG_W = normalsG_W * mul # (numG, 3)
 
     wi_W = safe_normalize(reflect(wo_W, normalsG_W)) # (numG, 3)
 
@@ -763,7 +778,7 @@ def pbr_render_mixxed(viewpoint_camera, pc: GaussianModel,
     # diffuse_light = results["diffuse_light"] # [numG, 3]
     specular_light = results["specular_light"] # [numG, 3]
 
-    image_specular, radii = rasterizer(
+    image_specular, radii, allmap = rasterizer(
         means3D = means3D,
         means2D = means2D,
         shs = None,
@@ -774,29 +789,10 @@ def pbr_render_mixxed(viewpoint_camera, pc: GaussianModel,
         cov3D_precomp = cov3D_precomp
     )
 
-    alpha = torch.ones_like(means3D) 
-    render_alpha = rasterizer(
-        means3D = means3D,
-        means2D = means2D,
-        shs = None,
-        colors_precomp = alpha,
-        opacities = opacity,
-        scales = scales,
-        rotations = rotations,
-        cov3D_precomp = cov3D_precomp
-    )[0][0:1,:,:]  # (1, H, W)
+    render_alpha = allmap[1:2]
 
-    normal_normed = 0.5*normalsG_W + 0.5  # range (-1, 1) -> (0, 1)
-    render_normal = rasterizer(
-        means3D = means3D,
-        means2D = means2D,
-        shs = None,
-        colors_precomp = normal_normed,
-        opacities = opacity,
-        scales = scales,
-        rotations = rotations,
-        cov3D_precomp = cov3D_precomp
-    )[0]
+    render_normal = allmap[2:5]
+    render_normal = (render_normal.permute(1,2,0) @ (viewpoint_camera.world_view_transform[:3,:3].T)).permute(2,0,1)
 
     try:
         gt_mask = viewpoint_camera.gt_normal_mask.cuda()
@@ -812,35 +808,26 @@ def pbr_render_mixxed(viewpoint_camera, pc: GaussianModel,
         else:
             mask = (render_normal != 0).all(0, keepdim=True) # | (render_alpha >= 0.5).all(0, keepdim=True)
     
-    p_hom = torch.cat([pc.get_xyz, torch.ones_like(pc.get_xyz[...,:1])], -1).unsqueeze(-1)
-    p_view = torch.matmul(viewpoint_camera.world_view_transform.transpose(0,1), p_hom)
-    p_view = p_view[...,:3,:]
-    depth = p_view.squeeze()[...,2:3]
-    depth = depth.repeat(1,3)
-    render_depth = rasterizer(
-        means3D = means3D,
-        means2D = means2D,
-        shs = None,
-        colors_precomp = depth,
-        opacities = opacity,
-        scales = scales,
-        rotations = rotations,
-        cov3D_precomp = cov3D_precomp
-    )[0][0:1,:,:]  # (1, H, W)
+    # get median depth map
+    render_depth_median = allmap[5:6]
+    render_depth_median = torch.nan_to_num(render_depth_median, 0, 0)
 
-    delta_n = rasterizer(
-        means3D = means3D,
-        means2D = means2D,
-        shs = None,
-        colors_precomp = delta_normal_norm.repeat(1,3),
-        opacities = opacity,
-        scales = scales,
-        rotations = rotations,
-        cov3D_precomp = cov3D_precomp
-    )[0][0:1,:,:]
+    # get expected depth map
+    render_depth_expected = allmap[0:1]
+    render_depth_expected = (render_depth_expected / render_alpha)
+    render_depth_expected = torch.nan_to_num(render_depth_expected, 0, 0)
+    
+    # get depth distortion map
+    render_dist = allmap[6:7]
 
+    # psedo surface attributes
+    # surf depth is either median or expected by setting depth_ratio to 1 or 0
+    # for bounded scene, use median depth, i.e., depth_ratio = 1; 
+    # for unbounded scene, use expected depth, i.e., depth_ration = 0, to reduce disk anliasing.
+    surf_depth = render_depth_expected * (1-pipe.depth_ratio) + (pipe.depth_ratio) * render_depth_median
+    
     # assume the depth points form the 'surface' and generate psudo surface normal for regularizations.
-    surf_normal = depth_to_normal(viewpoint_camera, render_depth)
+    surf_normal = depth_to_normal(viewpoint_camera, surf_depth)
     surf_normal = surf_normal.permute(2,0,1)
     # remember to multiply with accum_alpha since render_normal is unnormalized.
     surf_normal = surf_normal * (render_alpha).detach()
@@ -906,15 +893,14 @@ def pbr_render_mixxed(viewpoint_camera, pc: GaussianModel,
     rets.update({
             'rend_alpha': render_alpha,
             'rend_normal': render_normal,
-            'surf_depth': render_depth,
+            'surf_depth': surf_depth,
             'surf_normal': surf_normal,
-            'delta_n': delta_n
+            'rend_dist': render_dist
 
     })
 
     if speed:
         return rets
-
 
     light_specular = rasterizer(
         means3D = means3D,
@@ -992,21 +978,30 @@ def pbr_render_mixxed_r(viewpoint_camera, pc: GaussianModel,
     scales = None
     rotations = None
     cov3D_precomp = None
+
     if pipe.compute_cov3D_python:
-        cov3D_precomp = pc.get_covariance(scaling_modifier)
+        # currently don't support normal consistency loss if use precomputed covariance
+        splat2world = pc.get_covariance(scaling_modifier)
+        W, H = viewpoint_camera.image_width, viewpoint_camera.image_height
+        near, far = viewpoint_camera.znear, viewpoint_camera.zfar
+        ndc2pix = torch.tensor([
+            [W / 2, 0, 0, (W-1) / 2],
+            [0, H / 2, 0, (H-1) / 2],
+            [0, 0, far-near, near],
+            [0, 0, 0, 1]]).float().cuda().T
+        world2pix =  viewpoint_camera.full_proj_transform @ ndc2pix
+        cov3D_precomp = (splat2world[:, [0,1,3]] @ world2pix[:,[0,1,3]]).permute(0,2,1).reshape(-1, 9) # column major
     else:
         scales = pc.get_scaling
         rotations = pc.get_rotation
 
-
-    #shading/colors_precomputed
     view_pos = viewpoint_camera.camera_center.repeat(numG, 1) # (numG, 3)
     wo_W = safe_normalize(view_pos - means3D) # (numG, 3) wo directs from gs to camera
-    dir_pp_normalized = - wo_W # (numG, 3) dir_pp_normalized directs from camera to gs
-
-    delta_normal_norm = None
-    normalsG_W, delta_normal = pc.get_normal(dir_pp_normalized= dir_pp_normalized, return_delta=True) # (N, 3)
-    delta_normal_norm = delta_normal.norm(dim=1, keepdim=True)
+    
+    normalsG_W = pc.get_normals # (numG, 3)
+    cos = dot(normalsG_W, wo_W) # (numG, 1)
+    mul = torch.where(cos > 0, 1., -1.) # (numG, 1)
+    normalsG_W = normalsG_W * mul # (numG, 3)
 
     wi_W = safe_normalize(reflect(wo_W, normalsG_W)) # (numG, 3)
 
@@ -1030,7 +1025,7 @@ def pbr_render_mixxed_r(viewpoint_camera, pc: GaussianModel,
     diffuse_light = results["diffuse_light"] # [numG, 3]
     # specular_light = results["specular_light"] # [numG, 3]
 
-    image_diffuse, radii = rasterizer(
+    image_diffuse, radii, allmap = rasterizer(
         means3D = means3D,
         means2D = means2D,
         shs = None,
@@ -1041,29 +1036,10 @@ def pbr_render_mixxed_r(viewpoint_camera, pc: GaussianModel,
         cov3D_precomp = cov3D_precomp
     )
 
-    alpha = torch.ones_like(means3D) 
-    render_alpha = rasterizer(
-        means3D = means3D,
-        means2D = means2D,
-        shs = None,
-        colors_precomp = alpha,
-        opacities = opacity,
-        scales = scales,
-        rotations = rotations,
-        cov3D_precomp = cov3D_precomp
-    )[0][0:1,:,:]  # (1, H, W)
+    render_alpha = allmap[1:2]
 
-    normal_normed = 0.5*normalsG_W + 0.5  # range (-1, 1) -> (0, 1)
-    render_normal = rasterizer(
-        means3D = means3D,
-        means2D = means2D,
-        shs = None,
-        colors_precomp = normal_normed,
-        opacities = opacity,
-        scales = scales,
-        rotations = rotations,
-        cov3D_precomp = cov3D_precomp
-    )[0]
+    render_normal = allmap[2:5]
+    render_normal = (render_normal.permute(1,2,0) @ (viewpoint_camera.world_view_transform[:3,:3].T)).permute(2,0,1)
 
     try:
         gt_mask = viewpoint_camera.gt_normal_mask.cuda()
@@ -1079,35 +1055,26 @@ def pbr_render_mixxed_r(viewpoint_camera, pc: GaussianModel,
         else:
             mask = (render_normal != 0).all(0, keepdim=True) # | (render_alpha >= 0.5).all(0, keepdim=True)
     
-    p_hom = torch.cat([pc.get_xyz, torch.ones_like(pc.get_xyz[...,:1])], -1).unsqueeze(-1)
-    p_view = torch.matmul(viewpoint_camera.world_view_transform.transpose(0,1), p_hom)
-    p_view = p_view[...,:3,:]
-    depth = p_view.squeeze()[...,2:3]
-    depth = depth.repeat(1,3)
-    render_depth = rasterizer(
-        means3D = means3D,
-        means2D = means2D,
-        shs = None,
-        colors_precomp = depth,
-        opacities = opacity,
-        scales = scales,
-        rotations = rotations,
-        cov3D_precomp = cov3D_precomp
-    )[0][0:1,:,:]  # (1, H, W)
+    # get median depth map
+    render_depth_median = allmap[5:6]
+    render_depth_median = torch.nan_to_num(render_depth_median, 0, 0)
 
-    delta_n = rasterizer(
-        means3D = means3D,
-        means2D = means2D,
-        shs = None,
-        colors_precomp = delta_normal_norm.repeat(1,3),
-        opacities = opacity,
-        scales = scales,
-        rotations = rotations,
-        cov3D_precomp = cov3D_precomp
-    )[0][0:1,:,:]
+    # get expected depth map
+    render_depth_expected = allmap[0:1]
+    render_depth_expected = (render_depth_expected / render_alpha)
+    render_depth_expected = torch.nan_to_num(render_depth_expected, 0, 0)
+    
+    # get depth distortion map
+    render_dist = allmap[6:7]
 
+    # psedo surface attributes
+    # surf depth is either median or expected by setting depth_ratio to 1 or 0
+    # for bounded scene, use median depth, i.e., depth_ratio = 1; 
+    # for unbounded scene, use expected depth, i.e., depth_ration = 0, to reduce disk anliasing.
+    surf_depth = render_depth_expected * (1-pipe.depth_ratio) + (pipe.depth_ratio) * render_depth_median
+    
     # assume the depth points form the 'surface' and generate psudo surface normal for regularizations.
-    surf_normal = depth_to_normal(viewpoint_camera, render_depth)
+    surf_normal = depth_to_normal(viewpoint_camera, surf_depth)
     surf_normal = surf_normal.permute(2,0,1)
     # remember to multiply with accum_alpha since render_normal is unnormalized.
     surf_normal = surf_normal * (render_alpha).detach()
@@ -1174,9 +1141,9 @@ def pbr_render_mixxed_r(viewpoint_camera, pc: GaussianModel,
     rets.update({
             'rend_alpha': render_alpha,
             'rend_normal': render_normal,
-            'surf_depth': render_depth,
+            'surf_depth': surf_depth,
             'surf_normal': surf_normal,
-            'delta_n': delta_n
+            'rend_dist': render_dist
 
     })
 
