@@ -43,7 +43,7 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
     param_groups = [
         {"name": "cubemap", "params": cubemap.parameters(), "lr": opt.brdf_mlp_lr_init},
     ]
-    light_optimizer = torch.optim.Adam(param_groups, lr=opt.opacity_lr)
+    light_optimizer = torch.optim.Adam(param_groups, lr=opt.lambda_env_lr)
     brdf_mlp_scheduler_args = get_expon_lr_func(lr_init=opt.brdf_mlp_lr_init,
                                         lr_final=opt.brdf_mlp_lr_final,
                                         lr_delay_mult=opt.brdf_mlp_lr_delay_mult,
@@ -76,8 +76,8 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
     gaussians.set_requires_grad("roughness", False)
     gaussians.set_requires_grad("metallic", False)
 
-    gaussians.set_requires_grad("normal_0", False)
-    gaussians.set_requires_grad("normal_1", False)
+    # gaussians.set_requires_grad("normal_0", False)
+    # gaussians.set_requires_grad("normal_1", False)
 
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
@@ -122,7 +122,7 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
             for param_group in light_optimizer.param_groups:
                 if param_group["name"] == "cubemap":
                     # lr = brdf_mlp_scheduler_args(iteration - opt.warmup_iterations)
-                    lr = opt.env_lr
+                    lr = opt.lambda_env_lr
                     param_group['lr'] = lr
             cubemap.build_mips()
             
