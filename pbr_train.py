@@ -122,7 +122,7 @@ def pbr_training(dataset, opt, pipe, testing_iterations, saving_iterations, chec
             for param_group in light_optimizer.param_groups:
                 if param_group["name"] == "cubemap":
                     # lr = brdf_mlp_scheduler_args(iteration - opt.warmup_iterations)
-                    lr = 0.05
+                    lr = opt.env_lr
                     param_group['lr'] = lr
             cubemap.build_mips()
             

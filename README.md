@@ -23,3 +23,5 @@ for mixxed: also with warmup, and without mask
 
 git checkout mixxed_refined
 python pbr_train.py -s ... -m ... 
+
+branch 2dgs_refined, diff shading config + 2dgs + distortion loss + alpha loss

@@ -66,7 +66,7 @@ class PipelineParams(ParamGroup):
     def __init__(self, parser):
         self.convert_SHs_python = False
         self.compute_cov3D_python = False
-        self.depth_ratio = 0.0
+        self.depth_ratio = 1.0
         self.debug = False
 
         self.gamma = False
@@ -91,6 +91,7 @@ class OptimizationParams(ParamGroup):
         self.position_lr_max_steps = 30_000
         self.feature_lr = 0.0025
         self.opacity_lr = 0.05
+        self.env_lr = 0.05
         self.scaling_lr = 0.005
         self.rotation_lr = 0.001
         self.percent_dense = 0.01
@@ -101,7 +102,7 @@ class OptimizationParams(ParamGroup):
         self.lambda_dist = 1000.0
 
         self.lambda_normal = 0.05
-        self.lambda_alpha = 1e-3
+        self.lambda_alpha = 1e-2
         self.lambda_delta_n = 5e-3
 
         self.opacity_cull = 0.05
@@ -121,7 +122,7 @@ class OptimizationParams(ParamGroup):
         self.fix_brdf_lr = 0
         self.brdf_mlp_lr_init = 1.6e-2
         self.brdf_mlp_lr_final = 1.6e-3 
-        
+
         self.brdf_mlp_lr_delay_mult = 0.01
         self.brdf_mlp_lr_max_steps = 45_000
         
