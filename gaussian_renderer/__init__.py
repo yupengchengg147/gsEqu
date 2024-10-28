@@ -596,7 +596,7 @@ def pbr_render_df(viewpoint_camera,
     render_normal = torch.where(mask, render_normal, torch.zeros_like(render_normal))
     surf_normal = torch.where(mask, surf_normal, torch.zeros_like(surf_normal))
     # render_alpha = torch.where(mask, render_alpha, torch.zeros_like(render_alpha))
-    render_depth = torch.where(mask, render_depth, torch.zeros_like(render_depth))
+    render_depth = torch.where(mask, surf_depth, torch.zeros_like(surf_depth))
 
     if pipe.tone:
         rendered_image = aces_film(rendered_image)
